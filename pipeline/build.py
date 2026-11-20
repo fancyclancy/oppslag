@@ -632,7 +632,7 @@ def short_no(e, limit=90):
 
 # index: one row per entry, columns
 ids_sorted = sorted(entries, key=lambda i: (rank.get(i, 10**7), i))
-idx = {'id': [], 'l': [], 'p': [], 'g': [], 'hg': [], 'r': [], 'en': [], 'no': [], 'f': []}
+idx = {'id': [], 'l': [], 'p': [], 'g': [], 'hg': [], 'r': [], 'en': [], 'no': [], 'f': [], 'ipa': []}
 for i in ids_sorted:
     e = entries[i]
     idx['id'].append(i)
@@ -648,6 +648,7 @@ for i in ids_sorted:
     if e.get('ens'): flags += 's'
     if e.get('tone'): flags += str(e['tone'])
     idx['f'].append(flags)
+    idx['ipa'].append(e.get('ipa', ''))
 json.dump(idx, open(os.path.join(OUT, 'index.json'), 'w'), ensure_ascii=False, separators=(',', ':'))
 
 # forms: only forms that are not a lemma of the same entry
@@ -732,7 +733,7 @@ for t, ids in sorted(topic_ids.items()):
         lists.append({'id': 'topic-' + re.sub(r'\W+', '-', t.lower()), 'group': 'Topics', 'name': t, 'ids': ids[:500]})
 json.dump(lists, open(os.path.join(OUT, 'lists.json'), 'w'), ensure_ascii=False, separators=(',', ':'))
 
-meta = {'built': time.strftime('%Y-%m-%d'), 'entries': len(entries), 'bo': sum(1 for e in entries.values() if e['src'] == 'bo'),
+meta = {'built': time.strftime('%Y-%m-%d'), 'ver': time.strftime('%Y%m%d%H%M%S'), 'entries': len(entries), 'bo': sum(1 for e in entries.values() if e['src'] == 'bo'),
         'wk': sum(1 for e in entries.values() if e['src'] == 'wk'), 'withEnglish': sum(1 for e in entries.values() if e.get('en')),
         'withPron': npron, 'forms': len(form_to), 'sentences': len(sentences), 'shards': NSHARDS,
         'lists': len(lists)}
