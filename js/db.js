@@ -41,7 +41,7 @@ export function row(id) {
   if (i === undefined) return null;
   return {
     id, i, lemmas: IDX.l[i].split('|'), pos: IDX.p[i], g: IDX.g[i], hg: IDX.hg[i], rank: IDX.r[i],
-    en: IDX.en[i], no: IDX.no[i], flags: IDX.f[i],
+    en: IDX.en[i], no: IDX.no[i], flags: IDX.f[i], ipa: IDX.ipa ? IDX.ipa[i] : '',
     wk: IDX.f[i].includes('w'), shared: IDX.f[i].includes('s'),
     tone: IDX.f[i].includes('2') ? 2 : IDX.f[i].includes('1') ? 1 : 0,
   };

@@ -1,5 +1,5 @@
 // Offline support. App shell: network-first (so updates arrive), data: cache-first.
-const SHELL = 'oppslag-shell-v1';
+const SHELL = 'oppslag-shell-v2';
 const DATA = 'oppslag-data';
 const SHELL_FILES = ['./', 'index.html', 'styles.css', 'manifest.webmanifest', 'js/app.js', 'js/db.js', 'js/store.js', 'js/srs.js',
   'js/speech.js', 'js/render.js', 'js/icons.js', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png'];
