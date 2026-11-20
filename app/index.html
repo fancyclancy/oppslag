@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Oppslag</title>
+<meta name="description" content="Offline Norwegian Bokmål–English dictionary">
+<meta name="theme-color" content="#c8102e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Oppslag">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="splash"><div class="logo">ø</div><div id="splash-msg">Loading…</div></div>
+
+<header class="topbar">
+  <button id="menuBtn" class="icon" aria-label="Menu"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+  <div class="searchwrap">
+    <svg class="sicon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+    <input id="q" type="search" placeholder="Search Norwegian or English" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="search" aria-label="Search">
+    <button id="clearQ" class="icon tiny" aria-label="Clear" hidden><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+  </div>
+  <button id="pasteBtn" class="icon" aria-label="Search clipboard" title="Search clipboard"><svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="12" height="17" rx="2"/><path d="M9 4V3h6v1M9 10h6M9 14h4"/></svg></button>
+</header>
+<div id="keybar" aria-label="Special characters">
+  <button data-k="æ">æ</button><button data-k="ø">ø</button><button data-k="å">å</button><button data-k="é">é</button><button data-k="*">*</button><button data-k="?">?</button>
+</div>
+<ul id="suggest" hidden></ul>
+
+<nav id="drawer" aria-label="Main menu">
+  <div class="drawer-brand"><span class="logo small">ø</span><div><b>Oppslag</b><div class="muted small">norsk bokmål ⇄ English</div></div></div>
+  <a href="#/">Search</a>
+  <a href="#/history">History</a>
+  <a href="#/lists">Bookmarks</a>
+  <a href="#/builtin">Word lists</a>
+  <a href="#/cards">Flashcards</a>
+  <a href="#/reader">Reader</a>
+  <a href="#/examples">Example sentences</a>
+  <hr>
+  <a href="#/settings">Settings</a>
+  <a href="#/about">About & sources</a>
+</nav>
+<div id="scrim"></div>
+
+<main id="view"></main>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
