@@ -1103,7 +1103,19 @@ async function boot() {
   await route();
   document.body.classList.add('ready');
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-    navigator.serviceWorker.register('sw.js').then(() => setTimeout(() => prefetchAll(false), 4000)).catch(() => {});
+    // A new release installs a new service worker; when it takes over, reload once so the new
+    // version shows straight away (only if an older version was already running).
+    const hadController = !!navigator.serviceWorker.controller;
+    let reloading = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!hadController || reloading) return;
+      reloading = true; location.reload();
+    });
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then((reg) => {
+      setTimeout(() => prefetchAll(false), 4000);
+      // home-screen apps stay open for days: check for a new release whenever it comes back to the front
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') reg.update().catch(() => {}); });
+    }).catch(() => {});
   }
 }
 boot();

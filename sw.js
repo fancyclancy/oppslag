@@ -1,5 +1,7 @@
-// Offline support. App shell: network-first (so updates arrive), data: cache-first.
-const SHELL = 'oppslag-shell-v2';
+// Offline support. App shell: network-first and always revalidated with the server, so a new
+// release shows up on the next launch (GitHub Pages lets browsers reuse files for 10 minutes,
+// which otherwise hides updates). Data: cache-first.
+const SHELL = 'oppslag-shell-v3';
 const DATA = 'oppslag-data';
 const SHELL_FILES = ['./', 'index.html', 'styles.css', 'manifest.webmanifest', 'js/app.js', 'js/db.js', 'js/store.js', 'js/srs.js',
   'js/speech.js', 'js/render.js', 'js/icons.js', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png'];
@@ -7,7 +9,7 @@ const CORE_DATA = ['data/index.json', 'data/forms.json', 'data/meta.json'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil((async () => {
-    await (await caches.open(SHELL)).addAll(SHELL_FILES);
+    await (await caches.open(SHELL)).addAll(SHELL_FILES.map(u => new Request(u, { cache: 'reload' })));
     const d = await caches.open(DATA);
     await Promise.all(CORE_DATA.map(async (u) => { const r = await fetch(u, { cache: 'no-cache' }); if (r.ok) await d.put(new URL(u, self.registration.scope).href, r); }));
     self.skipWaiting();
@@ -28,7 +30,7 @@ self.addEventListener('fetch', (e) => {
     e.respondWith(cacheFirst(e.request, DATA));
     return;
   }
-  e.respondWith(networkFirst(e.request, SHELL));
+  e.respondWith(networkFirst(e.request, SHELL, true));
 });
 async function cacheFirst(req, name) {
   const c = await caches.open(name);
@@ -38,10 +40,14 @@ async function cacheFirst(req, name) {
   if (r.ok) c.put(req, r.clone());
   return r;
 }
-async function networkFirst(req, name) {
+async function networkFirst(req, name, revalidate = false) {
   const c = await caches.open(name);
   try {
-    const r = await fetch(req);
+    // 'no-cache' asks the server whether the file changed (a tiny 304 when it hasn't)
+    // (navigation requests can't be copied with new options, so those are fetched by URL)
+    const r = !revalidate ? await fetch(req)
+      : req.mode === 'navigate' ? await fetch(req.url, { cache: 'no-cache', credentials: 'same-origin' })
+      : await fetch(new Request(req, { cache: 'no-cache' }));
     if (r.ok) c.put(req, r.clone());
     return r;
   } catch {
