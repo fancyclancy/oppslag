@@ -110,7 +110,8 @@ def save(img, size, name, rounded_corners=False):
 if __name__ == '__main__':
     os.makedirs(OUT, exist_ok=True)
     art = book()
-    save(art, 180, 'apple-touch-icon.png')          # iOS rounds the corners itself
-    save(art, 512, 'icon-512.png')
-    save(art, 192, 'icon-192.png', True)
+    # file names carry the design ("book") so iOS can't reuse a cached copy of an older logo
+    save(art, 180, 'book-180.png')                  # apple-touch-icon; iOS rounds the corners itself
+    save(art, 512, 'book-512.png')
+    save(art, 192, 'book-192.png', True)
     save(art, 256, 'logo.png', True)                 # splash and menu
