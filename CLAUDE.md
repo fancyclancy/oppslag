@@ -78,4 +78,4 @@ A leather-bound book (oxblood cover with grain and a soft top light, cream page 
 
 ## Status bar
 
-The page has a single `<meta name="theme-color">`, set before first paint by an inline script in `index.html` to the app's background (`#F5F2EC` light, `#1C1B1C` dark), and `applyTheme()` keeps it in sync. The manifest's `theme_color`/`background_color` are `#1C1B1C`. iOS reads these when the app is added to the Home Screen, so changes need a re-add.
+The page has a single `<meta name="theme-color">`, set before first paint by an inline script in `index.html` to the app's background (`#F5F2EC` light, `#1C1B1C` dark), and `applyTheme()` keeps it in sync. The manifest (`app/oppslag-v3.webmanifest`) has `theme_color`/`background_color` `#1C1B1C`; like the icons, give it a new file name whenever these change, because iOS reads it once at install and Safari may serve a cached copy. iOS reads these when the app is added to the Home Screen, so changes need a re-add.
