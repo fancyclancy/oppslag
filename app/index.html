@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Oppslag</title>
 <meta name="description" content="Offline Norwegian Bokmål–English dictionary">
-<meta name="theme-color" content="#FAF8F3" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#141618" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#F5F2EC" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1C1B1C" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -14,10 +14,12 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="preload" href="fonts/schibsted-grotesk.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/newsreader.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<div id="splash"><img class="logo-img" src="icons/logo.png" alt="Oppslag" width="96" height="96"><div id="splash-msg">Loading…</div></div>
+<div id="splash" aria-label="Oppslag"><p class="splash-word" aria-hidden="true"><span>Opp</span><span>slag</span></p><div class="splash-foot"><span id="splash-msg">Bokmålsordboka · Språkrådet og Universitetet i Bergen</span></div></div>
 
 <header class="topbar">
   <div class="navrow">

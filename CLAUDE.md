@@ -2,86 +2,76 @@
 
 Offline Norwegian Bokmål ⇄ English dictionary, modelled on Shirabe Jisho. Plain HTML/CSS/JS PWA in `app/` (no build step), data built by `pipeline/build.py` into `app/data/`. Published to GitHub Pages from the `gh-pages` branch (`git subtree split --prefix app -b gh-pages`).
 
-## Design direction
+## Design direction (v3, 2026-11-21)
 
-Calm, bookish, Scandinavian: the iOS Dictionary crossed with Things 3. **The headword is the hero.** Paper-white pages, one quiet accent, generous whitespace, thin rules instead of boxes, serif for the words being studied and sans for the interface around them. Nothing decorative; every badge must explain itself.
+Intentional, editorial, not "generic AI app". Built from four references the owner chose:
 
-## Design tokens
+- **Merriam-Webster "remedy" concept**: full colour fields (plum, mustard, sage) on a near-black backdrop; huge grotesk headword; definitions in a large serif; a thin outlined "PLAY →" pill; a hairline rule above small footnote text.
+- **Apple Dictionary / Contacts icons**: tactile leather book with a visible page block → the app icon.
+- **Notion**: spacing and readability; bold title with a grey second line; hairline 1px borders instead of soft shadows.
+- **Speak Sync**: warm grey base, pastel action tiles, solid dark primary button.
 
-> Status: **approved and applied to the whole app** (2026-11-21). Defined at the top of `app/styles.css`; the whole stylesheet uses them. New CSS must use these tokens, not raw values. In CSS the accent token is `--tok-accent` (`--accent` is a legacy alias).
+Rules that keep it intentional:
+- **Colour carries meaning.** The word-page hero and flashcards take a field colour from the word class: noun = mustard, verb = sage, adjective = plum (coral headword), everything else = rose (`fieldOf()` in `app.js`). Don't add colour for decoration.
+- **Two typefaces with jobs**: Schibsted Grotesk (a Norwegian newspaper grotesk) for headwords and interface; Newsreader serif for meaning (English meanings, definitions, example sentences). Gentium for IPA.
+- **Hairlines, not shadows.** Cards and inputs use 1px `--rule` borders. Shadows (`--float`) only for things that float: menus, the pager, modals.
+- **No bare badges.** Everything says what it is in words ("Tone 2", "Common word"), never "C", "T2", "n1".
+- No uppercase tracked "eyebrow" labels (a template cliché): section labels are sentence case, 13px semibold, under a hairline.
 
-### Layout patterns
-
-- **Large page titles** (`pageTitle()` in `app.js`, `.page-title`): 28px (32px desktop). The top-bar title fades in only once the large title (or the word page headword) scrolls away (`watchLargeTitle()`).
-- **Section labels**: `.band`, eyebrow style, no background.
-- **Grouped cards** (`.group`): white surface, radius 12, hairlines between rows. Used for settings, bookmarks, word lists and decks (iOS Settings / Things 3).
-- **Dictionary rows** (`.res`): serif headword 20px, IPA and article in `--ink-3`, gloss 15px `--ink-2`. No badges in rows.
-- **Widths**: `--page-narrow` 720px for list pages, `--page-max` 1080px for the word page (two columns on desktop).
+## Tokens (defined at the top of `app/styles.css`)
 
 ### Type
 
-Two families. Serif is reserved for Norwegian words being studied (headwords, forms, example sentences); sans for interface and English.
+| Role | Family | Size / line-height |
+|---|---|---|
+| Word-page headword | Schibsted Grotesk 600, −0.05em | 56–72 / 0.95 mobile, 120 desktop |
+| Word of the day, splash | Newsreader 400, coral on plum | 76 (112 desktop), splash 120–280 |
+| Page titles (Notion style) | Schibsted Grotesk 700, −0.035em | 34 / 38 (44 / 48 desktop) |
+| Single meaning lead | Newsreader | 34 / 40 |
+| Meanings | Newsreader | 26 / 32 |
+| Row headword, forms | Schibsted Grotesk 600 | 21 / 26 |
+| Definitions, body prose | Newsreader | 19 / 27 |
+| Glosses in rows | Newsreader | 17 / 23 |
+| UI text | Schibsted Grotesk | 17, 16, 15 |
+| Labels, metadata | Schibsted Grotesk 600 / 400 | 13 / 18 |
+| Minimum | | 12 |
 
-```css
---font-serif: ui-serif, "New York", "Iowan Old Style", "Charter", Georgia, serif;
---font-sans:  -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
---font-ipa:   "Charis SIL", "Doulos SIL", "Times New Roman", serif;  /* full IPA coverage on Apple devices */
-```
+Fonts are self-hosted in `app/fonts/` (SIL OFL), subset with fonttools to Latin + Norwegian (and, for Gentium, only the IPA characters the data uses). To regenerate: download the TTFs from github.com/google/fonts and run `pyftsubset … --flavor=woff2`.
 
-Seven sizes, nothing in between (size / line-height, px). Weights: 400, 500, 600 only.
+### Spacing and shape
 
-| Token | Mobile | ≥ 900px | Use |
-|---|---|---|---|
-| `--text-hero` | 44 / 48, serif 600 | 64 / 68 | Headword on the word page |
-| `--text-title` | 28 / 34, sans 600 | 32 / 38 | Page titles, word-of-the-day word |
-| `--text-headline` | 20 / 26, serif 500 | 20 / 26 | Headwords in result rows, inflected forms |
-| `--text-body` | 17 / 25, sans 400 | 17 / 26 | Meanings, definitions |
-| `--text-callout` | 15 / 21, sans 400 | 15 / 22 | Secondary lines, examples' translations |
-| `--text-footnote` | 13 / 18, sans 400 | 13 / 18 | Metadata, sources, IPA of forms |
-| `--text-eyebrow` | 12 / 16, sans 600, uppercase, +0.06em | same | Section labels ("MEANINGS", "FORMS") |
+4-point scale: 4, 8, 12, 16, 24, 32, 48, 64 (`--space-1…8`). Radii: 8, 12, 20, 28, pill. Widths: `--page-narrow` 700px, `--page-max` 1080px (word page), `--measure` 36em.
 
-Minimum text size is 12px. No `em`-based one-off sizes.
+### Colour
 
-### Spacing
-
-4-point base, eight steps. Every margin, padding and gap uses one of these.
-
-```css
---space-1: 4px;  --space-2: 8px;  --space-3: 12px; --space-4: 16px;
---space-5: 24px; --space-6: 32px; --space-7: 48px; --space-8: 64px;
---radius-s: 8px; --radius-m: 12px; --radius-pill: 999px;
---measure: 34em;          /* max line length for definitions */
---page-max: 1080px;       /* desktop content width */
-```
-
-Row padding `--space-3` × `--space-4`; between sections `--space-6` (mobile) / `--space-7` (desktop); page side gutter `--space-4` (mobile) / `--space-6` (desktop).
-
-### Colour: one accent + neutrals
-
-All text pairs pass WCAG AA (4.5:1) on every background listed; ratios measured.
-
-| Token | Light | Dark | Use | AA check (light / dark, on paper) |
+| Token | Light | Dark | Use | Contrast |
 |---|---|---|---|---|
-| `--paper` | `#FAF8F3` | `#141618` | Page background | n/a |
-| `--surface` | `#FFFFFF` | `#1C1F22` | Raised panels, cards, buttons | n/a |
-| `--sunken` | `#F1EEE7` | `#24282C` | Search field, selected row | n/a |
-| `--rule` | `#E4E0D6` | `#2E3236` | Hairlines between rows and sections | n/a |
-| `--ink` | `#1D2125` | `#ECEAE4` | Headwords, body text | 15.3 / 15.1 |
-| `--ink-2` | `#4A5157` | `#B8BCBE` | Secondary text, translations | 7.6 / 9.5 |
-| `--ink-3` | `#626970` | `#8F959A` | Tertiary: metadata, articles, IPA of forms | 5.2 / 6.0 (4.8 / 4.9 on sunken) |
-| `--accent` | `#3A6788` | `#8CB3D4` | The only accent: links, active states, focus, IPA | 5.7 / 8.2 |
-| `--on-accent` | `#FFFFFF` | `#141618` | Text on accent fills | 6.0 / 8.2 |
+| `--paper` | `#F5F2EC` | `#1C1B1C` | page | |
+| `--card` | `#FFFEFB` | `#252325` | cards, inputs | |
+| `--sunken` | `#ECE8E0` | `#2E2B2E` | pressed, segmented control | |
+| `--rule` | `#DCD6CB` | `#3B383B` | hairlines | |
+| `--ink` | `#1E2421` | `#EDE8E1` | text | 14.1 / 14.1 |
+| `--ink-2` | `#4F5653` | `#C5BFB7` | secondary | 6.7 / 9.4 |
+| `--ink-3` | `#5E6360` | `#A39D95` | tertiary | 5.5 / 6.4 (5.0 on sunken) |
+| `--link` | `#5B4A5F` plum | `#D9C3DC` | links, the one interactive colour | 7.3 / 10.5 |
+| `--mustard` | `#DFB94F` | same | noun field | ink 8.4 |
+| `--sage` | `#96B07C` | same | verb field | ink 6.6 |
+| `--plum` | `#5B4A5F` | same | adjective field, splash, word of the day | `--on-plum` `#F6ECEE` 7.0 |
+| `--rose` | `#EFB4BC` | same | other word classes | ink 9.0 |
+| `--coral` | `#F77A8C` | same | **large display type on plum only** | 3.1 (AA large) |
+| tints `--mustard-t` `--sage-t` `--plum-t` `--rose-t` | pastel | deep | tiles, highlights, flashcard grade tiles | ink-2 ≥ 6.0 |
 
-`--accent` is "fjord blue". The user's accent picker swaps this one token. Presets (`ACCENTS` in `app.js`), all AA in both themes: Fjord `#3A6788`/`#8CB3D4`, Sage `#4D7444`/`#9CC08E`, Heather `#6A5A8C`/`#B9AAD8`, Clay `#97573E`/`#E2A78C`, Slate `#4E5C68`/`#AAB7C2`, Fjell `#A2283E`/`#EE9AA6`.
+Verified with axe-core 4.10 (WCAG 2 A/AA): zero violations on home, search, word pages, lists, bookmarks, history, settings, about.
 
-Flashcard grade buttons (white text, all ≥ 5:1): Again `#A8463D`, Hard `#8F6418`, Good `#4A7A44`, Easy `#3A6788`.
+## Components
 
-### Logo
+- **Word page**: colour-field hero (kicker in serif lowercase, headword, IPA · "Tone N" link, outlined `LISTEN →` pill `.pill-out`), then meanings in large serif, then sections under hairline labels; desktop = two columns with a sticky pronunciation/forms panel.
+- **Home**: Notion title "Ordbok. / Slå opp et ord.", plum Word of the day card (coral serif word, hairline footer), four Speak Sync tiles (sage, mustard, plum, rose tints), recent words.
+- **Splash**: plum field, "Opp/slag" in coral Newsreader running off the edges, credit line over a coral hairline.
+- **Lists/settings**: hairline-bordered groups (`.group`), large page titles that hand off to the top bar (`watchLargeTitle()`).
+- **Flashcards**: card is the word's colour field; grade buttons are pastel tiles.
+- **Icons**: Phosphor (regular), MIT, inlined in `app/js/icons.js`.
 
-A white Helvetica Neue Bold "ø" on Norwegian flag red `#BA0C2F`, with the slash drawn as one solid flag-blue `#00205B` bar on top of the "o" (slash angle measured from the font, thickness about 0.6 of the bowl's stroke). No underline. Generated by `pipeline/make_logo.py` into `app/icons/` (`apple-touch-icon.png`, `icon-192.png`, `icon-512.png` maskable, `logo.png` for the splash and menu). The logo's flag colours are brand colours only; they are not UI accents.
+## App icon
 
-Rules:
-- **One accent.** No second hue for tonelag, "common", or labels. Tonelag is shown by the contour drawing and a text label ("Tone 2"), not by colour.
-- Status colours are allowed only for flashcard grading buttons.
-- No coloured section bands; sections are separated by whitespace and an eyebrow label.
-- Every badge or abbreviation has a visible label or a one-tap explanation; no bare "C", "T2", "n1", "#13,421".
+A leather-bound book (oxblood cover with grain and a soft top light, cream page block with curved page edges, thin back cover) with a white Helvetica Neue Bold "ø" whose slash is a solid blue bar (`#25468C`). Generated by `pipeline/make_logo.py` → `app/icons/` (`apple-touch-icon.png`, `icon-192.png`, `icon-512.png`, `logo.png`).
