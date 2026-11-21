@@ -2,7 +2,7 @@
 const KEY = 'oppslag.v1';
 const DEFAULTS = {
   settings: {
-    theme: 'auto', accent: '#5f8a55', listView: 'rows', fontScale: 1, historyLimit: 200,
+    theme: 'auto', accent: 'fjord', listView: 'rows', fontScale: 1, historyLimit: 200,
     showTone: true, showFormIpa: true, voiceURI: '', rate: 0.9,
     sections: ['pron', 'en', 'no', 'fx', 'inf', 'cmp', 'ex', 'ety', 'rel', 'note', 'src'],
     hidden: [],

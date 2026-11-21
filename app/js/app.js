@@ -14,13 +14,17 @@ const POS_SHORT = { adv: 'adv.', prep: 'prep.', pron: 'pron.', det: 'det.', conj
 const COMMON_RANK = 6000;
 
 // ------------------------------------------------------------------ theme
-const ACCENTS = [['#5f8a55', 'Sage'], ['#4f7fa8', 'Fjord'], ['#7d6c9e', 'Heather'], ['#b2735b', 'Clay'], ['#5b6b77', 'Slate'], ['#9a8445', 'Birch']];
+const ACCENTS = [['fjord', 'Fjord', '#3A6788', '#8CB3D4'], ['sage', 'Sage', '#4D7444', '#9CC08E'], ['heather', 'Heather', '#6A5A8C', '#B9AAD8'],
+  ['clay', 'Clay', '#97573E', '#E2A78C'], ['slate', 'Slate', '#4E5C68', '#AAB7C2'], ['fjell', 'Fjell', '#A2283E', '#EE9AA6']];
+const OLD_ACCENTS = { '#c8102e': 'fjord', '#5f8a55': 'fjord', '#4f7fa8': 'fjord', '#7d6c9e': 'heather', '#b2735b': 'clay', '#5b6b77': 'slate' };
 function applyTheme() {
   const s = store.settings();
-  if (!s.accent || s.accent === '#c8102e') store.setSetting('accent', ACCENTS[0][0]);   // migrate from v1 red
+  if (!s.accent || OLD_ACCENTS[s.accent]) store.setSetting('accent', OLD_ACCENTS[s.accent] || 'fjord');   // migrate earlier versions
   const root = document.documentElement;
   if (s.theme === 'auto') delete root.dataset.theme; else root.dataset.theme = s.theme;
-  root.style.setProperty('--accent', s.accent);
+  const preset = ACCENTS.find(a => a[0] === s.accent);
+  root.style.setProperty('--acc-l', preset ? preset[2] : s.accent);
+  root.style.setProperty('--acc-d', preset ? preset[3] : `color-mix(in srgb, ${s.accent} 55%, white)`);
   root.style.setProperty('--fs', s.fontScale);
   requestAnimationFrame(() => {
     const bg = getComputedStyle(document.body).backgroundColor;
@@ -90,6 +94,7 @@ async function route() {
     $$('#drawer a').forEach(a => a.classList.toggle('active', a.getAttribute('href') === (isSearchHash(hash) ? '#/' : top)));
     if (!isSearchHash(hash) && !/^#\/w\//.test(hash)) { qInput().value = ''; $('#clearQ').hidden = true; }
     try { await fn(m); } catch (e) { console.error(e); view().innerHTML = `<div class="empty">Something went wrong: ${h(e.message)}</div>`; }
+    watchLargeTitle();
     return;
   }
   location.hash = '#/';
@@ -192,14 +197,23 @@ function resultRow(id, extra = '', href = null) {
   const art = artOf(r);
   const gloss = r.en ? h(r.en) : r.no ? `<span class="nogloss">${h(r.no)}</span>` : '';
   const short = POS_SHORT[r.pos];
-  const common = r.rank && r.rank <= COMMON_RANK;
   return `<a class="res" href="${href || '#/w/' + id}" data-id="${id}">
     <div class="res-head">${art ? `<span class="art">${art}</span>` : ''}<span class="lem">${h(r.lemmas.join(' / '))}</span>${r.hg ? `<sup class="hg">${r.hg}</sup>` : ''}${r.ipa ? `<span class="ipa-s">/${h(r.ipa)}/</span>` : ''}</div>
-    <div class="res-gloss">${short ? `<span class="res-pos">${short}</span> ` : ''}${gloss}</div>${extra}
-    <div class="res-mark">${common ? '<span class="cdot" title="Common word">C</span>' : ''}${r.tone ? `<span class="tmini t${r.tone}" title="Tonelag ${r.tone}">T${r.tone}</span>` : ''}</div></a>`;
+    <div class="res-gloss">${short ? `<span class="res-pos">${short}</span> ` : ''}${gloss}</div>${extra}</a>`;
 }
 function rowsHTML(ids) { return ids.map(id => resultRow(id)).join(''); }
 function rememberResults(ids) { try { sessionStorage.setItem('results', JSON.stringify(ids.slice(0, 300))); } catch {} }
+const pageTitle = (t) => `<h1 class="page-title">${h(t)}</h1>`;
+// iOS large-title behaviour: the bar shows the page's title only once the big one has scrolled away
+let titleObserver = null;
+function watchLargeTitle() {
+  titleObserver?.disconnect(); titleObserver = null;
+  const el = $('.page-title, .w-word');
+  document.body.classList.toggle('hero-visible', !!el);
+  if (!el) return;
+  titleObserver = new IntersectionObserver(([en]) => document.body.classList.toggle('hero-visible', en.isIntersecting), { rootMargin: '-60px 0px 0px 0px' });
+  titleObserver.observe(el);
+}
 function bandHTML(title, no = '', extra = '') { return `<div class="band"><span>${h(title)}${no ? ` <span class="no">${h(no)}</span>` : ''}</span>${extra}</div>`; }
 
 // render long lists progressively so typing stays smooth
@@ -266,18 +280,21 @@ async function viewHome(q) {
 function viewHomeEmpty() {
   const day = new Date().toISOString().slice(0, 10);
   const wotd = db.randomCommon(day);
+  const w = db.row(wotd);
   const hist = store.S().history.slice(0, 6);
   const m = db.meta();
   view().innerHTML = `
-    ${bandHTML('Word of the day', 'dagens ord')}${resultRow(wotd)}
+    ${w ? `<a class="wotd" href="#/w/${wotd}"><div class="wotd-label">Word of the day</div>
+      <div class="wotd-word">${artOf(w) ? `<span class="art">${h(artOf(w))}</span> ` : ''}${h(w.lemmas[0])}</div>
+      ${w.ipa ? `<div class="wotd-ipa">/${h(w.ipa)}/</div>` : ''}<div class="wotd-gloss">${h((w.en || w.no).split('; ').slice(0, 2).join('; '))}</div></a>` : ''}
     ${hist.length ? bandHTML('Recently viewed', '', '<a href="#/history" class="more">See all</a>') + rowsHTML(hist.map(x => x.id)) : ''}
-    ${bandHTML('Searching', 'søketips')}
-    <div class="body pad small" style="padding-top:8px;line-height:1.9">
-      Norwegian or English: <a href="#/s/hus">hus</a>, <a href="#/s/house">house</a><br>
-      Inflected forms: <a href="#/s/gikk">gikk</a> → gå, <a href="#/s/bøkene">bøkene</a> → bok<br>
-      No æ ø å key? <kbd>ae</kbd> <kbd>oe</kbd> <kbd>aa</kbd>: <a href="#/s/blaabaer">blaabaer</a><br>
-      Wildcards: <a href="#/s/*hus">*hus</a>, <a href="#/s/b%3Fk">b?k</a> · paste a sentence to break it into words
-    </div>
+    ${bandHTML('Ways to search')}
+    <ul class="tips">
+      <li>Norwegian or English: <a href="#/s/hus">hus</a>, <a href="#/s/house">house</a></li>
+      <li>Any form finds its word: <a href="#/s/gikk">gikk</a> → gå, <a href="#/s/bøkene">bøkene</a> → bok</li>
+      <li>No æ ø å keys? Type <kbd>ae</kbd> <kbd>oe</kbd> <kbd>aa</kbd>: <a href="#/s/blaabaer">blaabaer</a></li>
+      <li>Wildcards: <a href="#/s/*hus">*hus</a>, <a href="#/s/b%3Fk">b?k</a>. Paste a sentence to break it into words.</li>
+    </ul>
     <div class="foot">${m.entries.toLocaleString()} entries · ${m.withEnglish.toLocaleString()} with English · ${m.sentences.toLocaleString()} example sentences</div>`;
   rememberResults([wotd, ...hist.map(x => x.id)]);
 }
@@ -539,12 +556,6 @@ function wireEntry(e, r) {
     $('#noteOpen')?.addEventListener('click', () => { $('#noteOpen').remove(); nb.hidden = false; nb.focus(); grow(); });
     nb.addEventListener('input', () => { store.setNote(e.id, nb.value); grow(); });
   }
-  // iOS large-title behaviour: the bar shows the word only once the big headword has scrolled away
-  const hero = $('.w-word');
-  document.body.classList.add('hero-visible');
-  const io = new IntersectionObserver(([en]) => document.body.classList.toggle('hero-visible', en.isIntersecting), { rootMargin: '-60px 0px 0px 0px' });
-  io.observe(hero);
-  const prev = currentCleanup; currentCleanup = () => { prev?.(); io.disconnect(); document.body.classList.remove('hero-visible'); };
 }
 
 // Definitions in the older compact style, used on flashcard backs
@@ -602,10 +613,10 @@ function viewHistory() {
   const hs = store.S().history;
   document.title = 'History – Oppslag';
   setNav({ title: 'History', right: hs.length ? '<button class="pill-btn" id="clr">Clear</button>' : '' });
-  if (!hs.length) { view().innerHTML = '<div class="empty">Words you look up appear here.</div>'; return; }
+  if (!hs.length) { view().innerHTML = pageTitle('History') + '<div class="empty">Words you look up appear here.</div>'; return; }
   const today = new Date().toDateString();
   const groups = [['Today', hs.filter(x => new Date(x.t).toDateString() === today)], ['Earlier', hs.filter(x => new Date(x.t).toDateString() !== today)]];
-  view().innerHTML = groups.filter(g => g[1].length).map(([t, xs]) => bandHTML(t) + xs.map(x => resultRow(x.id)).join('')).join('');
+  view().innerHTML = pageTitle('History') + groups.filter(g => g[1].length).map(([t, xs]) => bandHTML(t) + xs.map(x => resultRow(x.id)).join('')).join('');
   rememberResults(hs.map(x => x.id));
   $('#clr')?.addEventListener('click', () => { if (confirm('Clear your history?')) { store.clearHistory(); viewHistory(); } });
 }
@@ -615,8 +626,8 @@ function viewMyLists() {
   document.title = 'Bookmarks – Oppslag';
   setNav({ title: 'Bookmarks', right: `<button class="round" id="newL" aria-label="New list">${ICON.plus}</button>` });
   const ls = store.lists();
-  view().innerHTML = bandHTML('Your lists') + ls.map(l => `<a class="lrow" href="#/list/${encodeURIComponent(l.id)}">${l.id === 'fav' ? ICON.starFill : ICON.folder}<div class="lt"><b>${h(l.name)}</b></div><span class="cnt">${l.ids.length}</span><span class="chev">${ICON.chev}</span></a>`).join('') +
-    `<p class="page-intro" style="margin-top:14px">Tap the star on any word to add it to Favourites, or the bookmark to file it into a list.</p>`;
+  view().innerHTML = pageTitle('Bookmarks') + '<div class="group">' + ls.map(l => `<a class="lrow" href="#/list/${encodeURIComponent(l.id)}">${l.id === 'fav' ? ICON.starFill : ICON.folder}<div class="lt">${h(l.name)}</div><span class="cnt">${l.ids.length}</span><span class="chev">${ICON.chev}</span></a>`).join('') + '</div>' +
+    `<p class="page-intro">Tap ☆ on any word to add it to Favourites, or the bookmark button to file it into a list of your own.</p>`;
   $('#newL').onclick = async () => { const n = await askText('New list'); if (n) { store.newList(n); viewMyLists(); } };
 }
 
@@ -677,7 +688,7 @@ function viewMyList(id) {
   document.title = `${l.name} – Oppslag`;
   setNav({ title: l.name, back: '#/lists', right: l.id !== 'fav' ? `<button class="round" id="ren" aria-label="Rename">${ICON.edit}</button><button class="round" id="del" aria-label="Delete list">${ICON.trash}</button>` : '' });
   const render = () => {
-    view().innerHTML = l.ids.length ? `${listToolbar(true)}<div id="lr"></div>` : '<div class="empty">Tap the star on a word, or the bookmark button, to save it here.</div>';
+    view().innerHTML = pageTitle(l.name) + (l.ids.length ? `${listToolbar(true)}<div id="lr"></div>` : '<div class="empty">Tap ☆ on a word, or the bookmark button, to save it here.</div>');
     if (!l.ids.length) return;
     renderWordList($('#lr'), l.ids, (x) => `<button class="rm" data-rm="${x}" aria-label="Remove">${ICON.close}</button>`);
     wireToolbar(l.ids, l.name, { type: 'user', id: l.id }, render);
@@ -699,9 +710,9 @@ async function viewBuiltins() {
   for (const l of L) if (l.ids.length) (groups[l.group] ||= []).push(l);
   const desc = { Frequency: 'The most-used words, from Norwegian film and TV subtitles.', Grammar: 'Word classes and irregular patterns, from the official inflection data.', Pronunciation: 'Practise the two Norwegian tones.', Topics: 'Subject lists from Wiktionary categories.' };
   const icon = { Frequency: ICON.list, Grammar: ICON.book, Pronunciation: ICON.speaker, Topics: ICON.folder };
-  view().innerHTML = `<input class="filter" id="lf" placeholder="Filter lists" style="margin-top:2px">
-    ${Object.entries(groups).map(([g, ls]) => `<section class="lgroup">${bandHTML(g)}<p class="page-intro" style="padding-bottom:2px">${h(desc[g] || '')}</p>
-      ${ls.map(l => `<a class="lrow" data-name="${h(l.name.toLowerCase())}" href="#/builtin/${encodeURIComponent(l.id)}">${icon[g] || ICON.list}<div class="lt">${h(l.name)}</div><span class="cnt">${(l.pairs || l.ids).length}</span><span class="chev">${ICON.chev}</span></a>`).join('')}</section>`).join('')}`;
+  view().innerHTML = `${pageTitle('Word lists')}<input class="filter" id="lf" placeholder="Filter lists" type="search">
+    ${Object.entries(groups).map(([g, ls]) => `<section class="lgroup">${bandHTML(g)}<p class="page-intro">${h(desc[g] || '')}</p>
+      <div class="group">${ls.map(l => `<a class="lrow" data-name="${h(l.name.toLowerCase())}" href="#/builtin/${encodeURIComponent(l.id)}">${icon[g] || ICON.list}<div class="lt">${h(l.name)}</div><span class="cnt">${(l.pairs || l.ids).length}</span><span class="chev">${ICON.chev}</span></a>`).join('')}</div></section>`).join('')}`;
   $('#lf').addEventListener('input', (ev) => {
     const v = ev.target.value.toLowerCase();
     $$('.lrow[data-name]').forEach(t => t.hidden = !t.dataset.name.includes(v));
@@ -718,8 +729,8 @@ async function viewBuiltin(id) {
   setNav({ title: l.name, back: '#/builtin', right: l.type === 'pairs' ? '' : `<button class="round" id="copyL" aria-label="Save a copy to Bookmarks">${ICON.bookmark}</button>` });
   const ids = l.ids.filter(x => db.row(x));
   if (l.type === 'pairs') {
-    const side = (id, t) => { const r = db.row(id); return r ? `<a class="pairside" href="#/w/${id}"><span class="chip-s t${t}">T${t}</span><b>${h(r.lemmas[0])}</b><span class="muted">${h((r.en || r.no).split('; ')[0])}</span></a>` : ''; };
-    view().innerHTML = `<p class="page-intro">Each form is spelled the same but takes tonelag 1 in one word and tonelag 2 in the other. Tap the speaker to hear it.</p>
+    const side = (id, t) => { const r = db.row(id); return r ? `<a class="pairside" href="#/w/${id}"><span class="chip-s">Tone ${t}</span><b>${h(r.lemmas[0])}</b><span class="muted">${h((r.en || r.no).split('; ')[0])}</span></a>` : ''; };
+    view().innerHTML = `${pageTitle(l.name)}<p class="page-intro">Each form is spelled the same but takes tonelag 1 in one word and tonelag 2 in the other. Tap the speaker to hear it.</p>
       ${listToolbar()}
       ${l.pairs.map(([f, a, b]) => `<div class="pair"><div class="pairform">${h(f)}${ttsAvailable() ? `<button class="speak tiny" data-say="${h(f)}" aria-label="Listen">${ICON.speaker}</button>` : ''}</div>${side(a, 1)}${side(b, 2)}</div>`).join('')}`;
     wireToolbar(ids, l.name, { type: 'builtin', id: l.id });
@@ -727,7 +738,7 @@ async function viewBuiltin(id) {
     return;
   }
   const render = () => {
-    view().innerHTML = `${listToolbar(true)}<div id="lr"></div>`;
+    view().innerHTML = `${pageTitle(l.name)}${listToolbar(true)}<div id="lr"></div>`;
     renderWordList($('#lr'), ids);
     wireToolbar(ids, l.name, { type: 'builtin', id: l.id }, render);
   };
@@ -760,8 +771,8 @@ async function viewDecks() {
   const opts = [...store.lists().map(l => `<option value="user:${h(l.id)}">${h(l.name)} (${l.ids.length})</option>`),
     ...L.filter(l => l.ids.length && l.group !== 'Topics').map(l => `<option value="builtin:${h(l.id)}">${h(l.group)} · ${h(l.name)}</option>`),
     ...L.filter(l => l.ids.length && l.group === 'Topics').map(l => `<option value="builtin:${h(l.id)}">Topic · ${h(l.name)}</option>`)].join('');
-  view().innerHTML = `${bandHTML('Your decks')}
-    ${rows.join('') || '<div class="empty" style="padding:28px">No decks yet. Make one below, or tap Study on any list.</div>'}
+  view().innerHTML = `${pageTitle('Flashcards')}${bandHTML('Your decks')}
+    ${rows.length ? `<div class="group">${rows.join('')}</div>` : '<p class="page-intro">No decks yet. Make one below, or tap Study on any word list.</p>'}
     ${bandHTML('New deck')}
     <form class="newdeck" id="nd">
       <select id="ndSrc">${opts}</select>
@@ -818,7 +829,7 @@ async function viewReview(deckId) {
     if (dir === 'en') backParts.push(`<div class="cf-word">${h(noWord)}</div>`);
     for (const f of s.cardBack) {
       if (f === 'en' && dir === 'no') backParts.push(`<div class="cb-en">${e.en ? e.en.slice(0, 4).map(x => h(x.g)).join('<br>') : h(r.no)}</div>`);
-      if (f === 'pron' && e.ipa) backParts.push(`<div class="cb-pron"><span class="ipa">/${h(e.ipa)}/</span>${e.tone ? `<span class="chip-s t${e.tone}">Tonelag ${e.tone}</span>` : ''}</div>`);
+      if (f === 'pron' && e.ipa) backParts.push(`<div class="cb-pron"><span class="ipa">/${h(e.ipa)}/</span>${e.tone ? `<span class="chip-s">Tone ${e.tone}</span>` : ''}</div>`);
       if (f === 'inf' && e.inf) backParts.push(`<div class="cb-inf">${e.inf.f.slice(0, e.inf.k === 'v' ? 5 : 4).filter(Boolean).map(c => h(c.split('/').filter(w => w[0] !== '~').join('/'))).join(' · ')}</div>`);
       if (f === 'no' && e.d) backParts.push(`<div class="cb-no">${renderDefs(e.d.slice(0, 2))}</div>`);
       if (f === 'ex' && e.ts?.length) { const S = await db.sentences(); const x = S[e.ts[0]]; if (x) backParts.push(`<div class="cb-ex"><div>${h(x[0])}</div><div class="muted">${h(x[1][0])}</div></div>`); }
@@ -880,7 +891,7 @@ function viewReader() {
   document.title = 'Reader – Oppslag';
   setNav({ title: 'Reader' });
   const text = sessionStorage.getItem('reader') || '';
-  view().innerHTML = `<p class="page-intro">Paste Norwegian text. Every word is looked up, including inflected forms and fixed expressions.</p>
+  view().innerHTML = `${pageTitle('Reader')}<p class="page-intro">Paste Norwegian text. Every word is looked up, including inflected forms and fixed expressions.</p>
     <div class="pad"><textarea id="rt" rows="4" placeholder="F.eks.: Jeg har bodd i Norge i tre år, og jeg snakker fortsatt ikke flytende norsk.">${h(text)}</textarea></div>
     <div class="row"><button class="btn primary" id="go">Look up words</button><button class="btn" id="paste">${ICON.paste} Paste</button>${ttsAvailable() ? `<button class="btn" id="say">${ICON.speaker} Read aloud</button>` : ''}</div>
     <div id="rout"></div>`;
@@ -925,7 +936,7 @@ function viewReader() {
 async function viewExamples(q) {
   document.title = 'Example sentences – Oppslag';
   setNav({ title: 'Example sentences' });
-  view().innerHTML = `<form id="exf" class="row" style="margin-top:4px"><input id="exq" value="${h(q)}" placeholder="Search Norwegian or English sentences" autocapitalize="off"><button class="btn primary">Search</button></form><div id="exr" class="loading">Loading…</div>`;
+  view().innerHTML = `${pageTitle('Example sentences')}<form id="exf" class="row"><input id="exq" value="${h(q)}" placeholder="Search Norwegian or English sentences" autocapitalize="off"><button class="btn primary">Search</button></form><div id="exr" class="loading">Loading…</div>`;
   $('#exf').addEventListener('submit', (ev) => { ev.preventDefault(); location.hash = '#/examples/' + encodeURIComponent($('#exq').value); });
   const my = routeSeq;
   const S = await db.sentences();
@@ -949,37 +960,37 @@ function viewSettings() {
   setNav({ title: 'Settings' });
   const s = store.settings();
   const voices = norwegianVoices();
-  view().innerHTML = `
-  ${bandHTML('Appearance')}
+  view().innerHTML = `${pageTitle('Settings')}
+  ${bandHTML('Appearance')}<div class="group">
     <label class="field"><span>Theme</span><select id="theme"><option value="auto">Match device</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
-    <div class="field"><span>Accent</span><div class="swatches">${ACCENTS.map(([c, n]) => `<button class="sw ${c === s.accent ? 'on' : ''}" data-c="${c}" style="background:${c}" aria-label="${n}" title="${n}"></button>`).join('')}<input type="color" id="accent" value="${s.accent}" aria-label="Custom colour"></div></div>
-    <label class="field"><span>Text size</span><input type="range" id="fs" min="0.85" max="1.4" step="0.05" value="${s.fontScale}"></label>
-  ${bandHTML('Word page')}
+    <div class="field"><span>Accent</span><div class="swatches">${ACCENTS.map(([k, n, c]) => `<button class="sw ${k === s.accent ? 'on' : ''}" data-c="${k}" style="background:${c}" aria-label="${n}" title="${n}"></button>`).join('')}<input type="color" id="accent" value="${(ACCENTS.find(a => a[0] === s.accent) || [0, 0, s.accent])[2]}" aria-label="Custom colour"></div></div>
+    <label class="field"><span>Text size</span><input type="range" id="fs" min="0.85" max="1.4" step="0.05" value="${s.fontScale}"></label></div>
+  ${bandHTML('Word page')}<div class="group">
     <ul class="reorder" id="ro">${s.sections.map(k => `<li data-k="${k}"><label class="check"><input type="checkbox" ${s.hidden.includes(k) ? '' : 'checked'}><span>${SECTION_NAMES[k]}</span></label><button data-up aria-label="Move up">${ICON.up}</button><button data-down aria-label="Move down">${ICON.down}</button></li>`).join('')}</ul>
     <div class="check-row"><label class="check"><input type="checkbox" id="showTone" ${s.showTone ? 'checked' : ''}><span>Show the tonelag pitch graph</span></label></div>
-    <div class="check-row"><label class="check"><input type="checkbox" id="showFormIpa" ${s.showFormIpa ? 'checked' : ''}><span>Show pronunciation of every inflected form</span></label></div>
-  ${bandHTML('Speech')}
+    <div class="check-row"><label class="check"><input type="checkbox" id="showFormIpa" ${s.showFormIpa ? 'checked' : ''}><span>Show pronunciation of every inflected form</span></label></div></div>
+  ${bandHTML('Speech')}<div class="group">
     ${ttsAvailable() ? `<label class="field"><span>Voice</span><select id="voice"><option value="">Automatic</option>${voices.map(v => `<option value="${h(v.voiceURI)}" ${v.voiceURI === s.voiceURI ? 'selected' : ''}>${h(v.name)} (${h(v.lang)})</option>`).join('')}</select></label>
     ${voices.length ? '' : '<p class="page-intro">No Norwegian voice found. On iPhone: Settings → Accessibility → Spoken Content → Voices → Norwegian.</p>'}
     <label class="field"><span>Speed</span><input type="range" id="rate" min="0.5" max="1.3" step="0.05" value="${s.rate}"></label>
     <div class="check-row"><label class="check"><input type="checkbox" id="autoSpeak" ${s.autoSpeak ? 'checked' : ''}><span>Speak flashcards automatically</span></label></div>
-    <div class="row"><button class="btn small" id="testVoice">${ICON.speaker} “Hei, hvordan har du det?”</button></div>` : '<p class="page-intro">Speech isn’t available in this browser.</p>'}
-  ${bandHTML('Flashcards')}
+    <div class="row"><button class="btn small" id="testVoice">${ICON.speaker} “Hei, hvordan har du det?”</button></div>` : '<p class="page-intro">Speech isn’t available in this browser.</p>'}</div>
+  ${bandHTML('Flashcards')}<div class="group">
     <label class="field"><span>New cards per day</span><input type="number" id="npd" min="0" max="200" value="${s.newPerDay}" style="width:90px"></label>
     <div class="field" style="align-items:flex-start"><span>Card back shows</span><div>${Object.entries(BACK_FIELDS).map(([k, v]) => `<label class="check" style="padding:5px 0"><input type="checkbox" data-back="${k}" ${s.cardBack.includes(k) ? 'checked' : ''}><span>${v}</span></label>`).join('')}</div></div>
-    <div class="check-row"><label class="check"><input type="checkbox" id="typeAnswer" ${s.typeAnswer ? 'checked' : ''}><span>Type the answer before revealing</span></label></div>
-  ${bandHTML('History')}
+    <div class="check-row"><label class="check"><input type="checkbox" id="typeAnswer" ${s.typeAnswer ? 'checked' : ''}><span>Type the answer before revealing</span></label></div></div>
+  ${bandHTML('History')}<div class="group">
     <label class="field"><span>Keep the last</span><select id="hl">${[50, 100, 200, 500, 1000].map(n => `<option ${n === s.historyLimit ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
-    <div class="row"><button class="btn small" id="clrH">Clear history</button></div>
-  ${bandHTML('Backup')}
+    <div class="row"><button class="btn small" id="clrH">Clear history</button></div></div>
+  ${bandHTML('Backup')}<div class="group">
     <p class="page-intro">Bookmarks, notes and flashcard progress stay on this device. Export a backup to move them to another one.</p>
-    <div class="row"><button class="btn" id="exp">${ICON.download} Export</button><label class="btn">${ICON.upload} Import<input type="file" id="imp" accept="application/json,.json" hidden></label></div>
-  ${bandHTML('Offline')}
+    <div class="row"><button class="btn" id="exp">${ICON.download} Export</button><label class="btn">${ICON.upload} Import<input type="file" id="imp" accept="application/json,.json" hidden></label></div></div>
+  ${bandHTML('Offline')}<div class="group">
     <p class="page-intro" id="offStat">Checking…</p>
-    <div class="row"><button class="btn" id="offBtn">${ICON.download} Download full dictionary</button></div>`;
+    <div class="row"><button class="btn" id="offBtn">${ICON.download} Download full dictionary</button></div></div>`;
   $('#theme').value = s.theme;
   $('#theme').addEventListener('change', (ev) => { store.setSetting('theme', ev.target.value); applyTheme(); });
-  $$('.sw').forEach(b => b.addEventListener('click', () => { store.setSetting('accent', b.dataset.c); applyTheme(); $$('.sw').forEach(x => x.classList.toggle('on', x === b)); $('#accent').value = b.dataset.c; }));
+  $$('.sw').forEach(b => b.addEventListener('click', () => { store.setSetting('accent', b.dataset.c); applyTheme(); $$('.sw').forEach(x => x.classList.toggle('on', x === b)); $('#accent').value = ACCENTS.find(a => a[0] === b.dataset.c)[2]; }));
   $('#accent').addEventListener('input', (ev) => { store.setSetting('accent', ev.target.value); applyTheme(); $$('.sw').forEach(x => x.classList.remove('on')); });
   $('#fs').addEventListener('input', (ev) => { store.setSetting('fontScale', +ev.target.value); applyTheme(); });
   const saveOrder = () => {
@@ -1013,21 +1024,21 @@ function viewAbout() {
   const m = db.meta();
   document.title = 'About – Oppslag';
   setNav({ title: 'About' });
-  view().innerHTML = `
+  view().innerHTML = `${pageTitle('About')}
   <div class="about-p"><p><b>Oppslag</b> (“look-up”) is an offline Norwegian Bokmål ⇄ English study dictionary, modelled on Shirabe Jisho.</p>
    <p class="muted small">Data built ${h(m.built)} · ${m.entries.toLocaleString()} entries (${m.bo.toLocaleString()} from Bokmålsordboka, ${m.wk.toLocaleString()} Wiktionary-only) · ${m.withEnglish.toLocaleString()} with English · ${m.withPron.toLocaleString()} with pronunciation · ${m.forms.toLocaleString()} word forms · ${m.sentences.toLocaleString()} example sentences.</p></div>
   ${bandHTML('Sources & licences')}
-   <ul class="sources small">
+   <div class="group"><ul class="sources">
     <li><b>Bokmålsordboka</b>: definitions, examples, fixed expressions, etymology, official spelling and inflection. © Språkrådet og Universitetet i Bergen, <a href="https://ordbokene.no" target="_blank" rel="noopener">ordbøkene.no</a>. <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>.</li>
     <li><b>Norsk ordbank bokmål</b>: compound analysis. Språkbanken, Nasjonalbiblioteket / UiB. CC BY 4.0.</li>
     <li><b>NB Uttale</b>: IPA and tonelag (Urban East Norwegian). Språkbanken, Nasjonalbiblioteket. CC0.</li>
     <li><b>Wiktionary</b>: English meanings, English etymology, topics, synonyms. Extracted by <a href="https://kaikki.org" target="_blank" rel="noopener">kaikki.org</a>. CC BY-SA 4.0.</li>
     <li><b>Tatoeba</b>: example sentences with English translations. <a href="https://tatoeba.org" target="_blank" rel="noopener">tatoeba.org</a>. CC BY 2.0 FR.</li>
     <li><b>FrequencyWords</b> (H. Dave, OpenSubtitles 2018): word frequency for ranking and “common” labels. CC BY-SA 4.0.</li>
-   </ul>
-   <p class="page-intro">Content has been reformatted and combined. English meanings are matched to Bokmålsordboka entries by spelling, word class and gender; where Wiktionary can’t tell homographs apart, the entry says so.</p>
+   </ul></div>
+   <p class="page-intro" style="margin-top:12px">Content has been reformatted and combined. English meanings are matched to Bokmålsordboka entries by spelling, word class and gender; where Wiktionary can’t tell homographs apart, the entry says so.</p>
   ${bandHTML('Keyboard shortcuts')}
-   <ul class="kbd-list small"><li><kbd>/</kbd> or <kbd>⌘K</kbd> search</li><li><kbd>Esc</kbd> clear search</li><li><kbd>↓</kbd> suggestions</li><li><kbd>←</kbd> <kbd>→</kbd> previous / next result</li><li><kbd>Space</kbd> flip card · <kbd>1</kbd>–<kbd>4</kbd> grade</li></ul>`;
+   <div class="group"><ul class="kbd-list"><li><kbd>/</kbd> or <kbd>⌘K</kbd> search</li><li><kbd>Esc</kbd> clear search</li><li><kbd>↓</kbd> suggestions</li><li><kbd>←</kbd> <kbd>→</kbd> previous / next result</li><li><kbd>Space</kbd> flip card · <kbd>1</kbd>–<kbd>4</kbd> grade</li></ul></div>`;
 }
 
 // ------------------------------------------------------------------ offline
