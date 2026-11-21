@@ -221,17 +221,26 @@ export function randomCommon(seed) {
   return pool[Math.abs(h) % pool.length];
 }
 
-// Compounds built on a word: entries that start or end with the lemma (excluding the word itself)
+// Compounds built on a word: the rest of the headword must itself be a dictionary word
+// (optionally after a linking -s- or -e-), so "gåsehud" doesn't count as a compound of "gå".
 export function compoundsOf(lemma, limit = 24) {
   const t = lemma.toLowerCase();
   if (t.length < 2) return { first: [], last: [] };
+  const M = lemmaMap();
+  const isWord = (w) => w.length >= 2 && M.has(w);
   const first = [], last = [];
   for (let i = 0; i < IDX.id.length; i++) {
     if (IDX.f[i].includes('w')) continue;
     for (const L of LOW[i].split('|')) {
       if (L.length < t.length + 3 || L.includes(' ')) continue;
-      if (L.startsWith(t)) { first.push(i); break; }
-      if (L.endsWith(t)) { last.push(i); break; }
+      if (L.startsWith(t)) {
+        const rest = L.slice(t.length);
+        if (isWord(rest) || (/^[se]/.test(rest) && isWord(rest.slice(1)))) { first.push(i); break; }
+      }
+      if (L.endsWith(t)) {
+        const head = L.slice(0, -t.length);
+        if (isWord(head) || (/[se]$/.test(head) && isWord(head.slice(0, -1)))) { last.push(i); break; }
+      }
     }
   }
   const s = (a, b) => rankKey(a) - rankKey(b);

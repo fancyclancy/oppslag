@@ -77,6 +77,7 @@ let routeSeq = 0;   // each navigation gets a number; slower, superseded renders
 
 async function route() {
   routeSeq++;
+  delete document.body.dataset.page;
   closeDrawer(); hideSuggest();
   currentCleanup?.(); currentCleanup = null;
   $('#pager').hidden = true;
@@ -281,7 +282,11 @@ function viewHomeEmpty() {
   rememberResults([wotd, ...hist.map(x => x.id)]);
 }
 
-// ------------------------------------------------------------------ ENTRY
+// ------------------------------------------------------------------ ENTRY (word page; design tokens in CLAUDE.md)
+// Sections that sit in the side column on desktop. On phones everything is one column in the user's order.
+const ASIDE = new Set(['pron', 'inf']);   // desktop reference panel, kept in view while reading
+const GENDER_WORD = { m: 'masculine', f: 'feminine', n: 'neuter' };
+
 async function viewEntry(id, fromForm) {
   const my = routeSeq;
   const r = db.row(id);
@@ -291,46 +296,213 @@ async function viewEntry(id, fromForm) {
   store.addHistory(id);
   const lemma = e.l[0];
   document.title = `${lemma} – Oppslag`;
+  document.body.dataset.page = 'word';
   const fav = store.inList('fav', id);
-  setNav({ title: lemma, back: '#/', right: `<button class="round ${fav ? 'on' : ''}" id="favBtn" aria-label="Favourite">${fav ? ICON.starFill : ICON.star}</button><button class="round" id="listBtn" aria-label="Add to list">${ICON.bookmark}</button>` });
+  setNav({ title: lemma, back: '#/', right: `<button class="round ${fav ? 'on' : ''}" id="favBtn" aria-label="${fav ? 'Remove from Favourites' : 'Add to Favourites'}">${fav ? ICON.starFill : ICON.star}</button><button class="round" id="listBtn" aria-label="Save to a list">${ICON.bookmark}</button>` });
   const s = store.settings();
-  const art = artOf(r);
-  const common = r.rank && r.rank <= COMMON_RANK;
-  const slots = fromForm ? slotsOf(e, fromForm) : [];
-  const formNote = fromForm && fromForm.toLowerCase() !== lemma.toLowerCase()
-    ? `<div class="formnote">${ICON.arrow}<span><b>${h(fromForm)}</b>${slots.length ? ' · ' + h(slots.join(', ')) : ''}</span></div>` : '';
-  const chips = [];
-  const b = band(r.rank);
-  if (b) chips.push(`<span class="chip-s" title="Frequency band">Band ${b}</span>`);
-  if (r.rank) chips.push(`<span class="chip-s">#${r.rank.toLocaleString()}</span>`);
-  if (e.tone) chips.push(`<span class="chip-s t${e.tone}">Tonelag ${e.tone}</span>`);
-  if (e.cls?.includes('strong')) chips.push('<span class="chip-s">irregular verb</span>');
-  if (e.cls?.includes('sverb')) chips.push('<span class="chip-s">s-verb</span>');
-  if (e.cls?.includes('irrplural')) chips.push('<span class="chip-s">irregular plural</span>');
-  if (r.wk) chips.push('<span class="chip-s wk">Wiktionary only</span>');
   const order = s.sections.filter(k => !s.hidden.includes(k));
-  const enInHead = order[0] === 'en' || (order[0] === 'pron' && order[1] === 'en');
-  const head = `
-    <header class="entry-head">
-      ${common ? '<span class="common-pill">Common</span>' : ''}
-      ${formNote}
-      <div class="headword">${art ? `<span class="art">${h(art)}</span>` : ''}<h1>${h(e.l.join(' / '))}</h1>${e.hg ? `<sup class="hg">${e.hg}</sup>` : ''}
-        ${e.ipa ? `<span class="ipa-h">/${h(e.ipa)}/</span>` : ''}${ttsAvailable() ? `<button class="speak" data-say="${h(lemma)}" aria-label="Listen">${ICON.speaker}</button>` : ''}</div>
-      <div class="sub">${h(posLine(r))}${noPosLine(r, e)}</div>
-      ${enInHead ? englishBody(e, r) : ''}
-      ${chips.length ? `<div class="meta-chips">${chips.join('')}</div>` : ''}
-    </header>`;
-  const sections = { pron: secPron, en: secEnglish, no: secNorsk, fx: secExpr, inf: secInflection, cmp: secCompound, ex: secExamples, ety: secEtymology, rel: secRelated, note: secNote, src: secSource };
-  const parts = [];
+  const sections = { pron: wPron, en: wEnglishSection, no: wDefinition, fx: wExpressions, inf: wForms, cmp: wCompound, ex: wExamples, ety: wOrigin, rel: wRelated, note: wNote, src: wSources };
+  // English meanings belong under the headword unless the user moved them further down
+  const enInHero = order.indexOf('en') !== -1 && order.indexOf('en') <= 1;
+  const main = [], aside = [];
+  let n = 0;
   for (const k of order) {
-    if (!sections[k] || (k === 'en' && enInHead)) continue;
+    if (!sections[k] || (k === 'en' && enInHero)) continue;
     const html = await sections[k](e, r);
-    if (html) parts.push(`<section class="esec" data-sec="${k}">${html}</section>`);
+    if (!html) continue;
+    (ASIDE.has(k) ? aside : main).push(`<section class="w-sec" data-sec="${k}" style="order:${n++}">${html}</section>`);
   }
   if (my !== routeSeq) return;
-  view().innerHTML = `<article class="entry">${head}${parts.join('')}</article>`;
+  view().innerHTML = `<article class="wpage">${wHero(e, r, fromForm, enInHero)}
+    <div class="w-cols"><div class="w-main">${main.join('')}</div><aside class="w-aside">${aside.join('')}</aside></div></article>`;
   wireEntry(e, r);
   setupPager(id);
+}
+
+function wKicker(r, e) {
+  const bits = [];
+  if (POS[r.pos]) bits.push(POS[r.pos]);
+  if (r.pos === 'n' && r.g) bits.push([...r.g].map(c => GENDER_WORD[c]).join(' or '));
+  const no = POS_NO[r.pos];
+  return `${h(bits.join(', '))}${no && no !== POS[r.pos] ? ` <span class="w-kicker-no">· ${h(no)}</span>` : ''}`;
+}
+
+function wHero(e, r, fromForm, enInHero) {
+  const lemma = e.l[0];
+  const art = artOf(r);
+  const slots = fromForm ? slotsOf(e, fromForm) : [];
+  const formNote = fromForm && fromForm.toLowerCase() !== lemma.toLowerCase()
+    ? `<p class="w-from">You searched <b>${h(fromForm)}</b>${slots.length ? `, the ${h(slots.join(' / ').toLowerCase())} of` : ', a form of'}</p>` : '';
+  const meta = [];
+  if (r.rank && r.rank <= COMMON_RANK) meta.push('Common word');
+  if (r.rank) meta.push(`Frequency rank ${r.rank.toLocaleString()}`);
+  if (e.cls?.includes('strong')) meta.push('Irregular verb');
+  if (e.cls?.includes('sverb')) meta.push('S-verb');
+  if (e.cls?.includes('irrplural')) meta.push('Irregular plural');
+  if (r.wk) meta.push('From Wiktionary only');
+  const tone = e.tone ? `<a class="w-tone" href="#tone" data-jump="pron" title="Norwegian pitch accent">Tone ${e.tone}</a>` : '';
+  return `<header class="w-hero">
+    ${formNote}
+    <p class="w-kicker">${wKicker(r, e)}</p>
+    <h1 class="w-word">${art ? `<span class="w-art">${h(art)}</span> ` : ''}${h(e.l.join(' / '))}${e.hg ? `<sup class="w-hg" title="Homograph ${e.hg}: one of several words spelled ${h(lemma)}">${e.hg}</sup>` : ''}</h1>
+    ${e.ipa || ttsAvailable() ? `<div class="w-say">${e.ipa ? `<span class="w-ipa">/${h(e.ipa)}/</span>` : ''}${ttsAvailable() ? `<button class="w-speak" data-say="${h(lemma)}" aria-label="Listen to ${h(lemma)}">${ICON.speaker}</button>` : ''}${tone}</div>` : ''}
+    ${enInHero ? `<div class="w-meanings">${wEnglishBody(e, r)}</div>` : ''}
+    ${meta.length ? `<p class="w-meta">${meta.map(h).join('<span aria-hidden="true"> · </span>')}</p>` : ''}
+  </header>`;
+}
+
+const eyebrow = (label, source = '') => `<h2 class="w-eyebrow">${h(label)}${source ? `<span class="w-src"> · ${h(source)}</span>` : ''}</h2>`;
+
+function wEnglishBody(e, r) {
+  if (e.en?.length) {
+    let html = '<ol class="w-senses">' + e.en.map(s => `<li><span class="w-gl">${h(s.g)}</span>${s.t ? ` <span class="w-lab">${s.t.map(h).join(', ')}</span>` : ''}
+      ${(s.x || []).map(x => `<p class="w-ex"><span class="w-ex-no" lang="nb">${h(x[0])}</span>${ttsAvailable() ? `<button class="w-speak small" data-say="${h(x[0])}" aria-label="Listen">${ICON.speaker}</button>` : ''}<span class="w-ex-en">${h(x[1])}</span></p>`).join('')}</li>`).join('') + '</ol>';
+    if (e.ens) html += `<p class="w-aside-note">These English meanings cover every ${h(POS[r.pos] || 'word')} spelled “${h(e.l[0])}”; Wiktionary doesn’t separate them. The definition below is specific to this one.</p>`;
+    if (e.ensrc === 'tr') html += '<p class="w-aside-note">From English Wiktionary entries that give this word as their Norwegian translation.</p>';
+    return html;
+  }
+  if (e.cmp) {
+    const parts = [e.cmp[0], e.cmp[2]].map(p => {
+      const ids = db.byLemma(p); const pr = ids.length ? db.row(ids[0]) : null;
+      return `<a href="${ids.length ? '#/w/' + ids[0] : '#/s/' + encodeURIComponent(p)}">${h(p)}</a>${pr?.en ? ` (${h(pr.en.split('; ')[0])})` : ''}`;
+    });
+    return `<p class="w-aside-note">No English entry yet. It’s a compound of ${parts.join(' + ')}.</p>`;
+  }
+  return '<p class="w-aside-note">No English translation in the open dictionaries. The Norwegian definition is below.</p>';
+}
+function wEnglishSection(e, r) { return eyebrow('Meanings') + wEnglishBody(e, r); }
+
+function wDefs(defs, depth = 0) {
+  return `<ol class="w-defs d${depth}">` + defs.map(d => {
+    let li = '';
+    if (d.e) li += `<p class="w-def">${d.e.map(rich).join('; ')}</p>`;
+    if (d.x) li += `<ul class="w-uses">${d.x.map(x => `<li lang="nb">${rich(x[0])}${x[1] ? ` <span class="w-use-gloss">– ${rich(x[1])}</span>` : ''}</li>`).join('')}</ul>`;
+    if (d.c) li += `<p class="w-also">${d.ci ? rich(d.ci) + ': ' : ''}${d.c.map(c => `<a class="xref" href="#/w/${c[1]}">${h(c[0])}</a>`).join(', ')}</p>`;
+    if (d.d) li += wDefs(d.d, depth + 1);
+    return `<li>${li}</li>`;
+  }).join('') + '</ol>';
+}
+function wDefinition(e) {
+  if (!e.d?.length) return '';
+  return eyebrow('Definition', 'Bokmålsordboka') + `<div lang="nb">${wDefs(e.d)}</div>`;
+}
+function wExpressions(e) {
+  if (!e.fx?.length) return '';
+  return eyebrow('Fixed expressions') + '<ul class="w-fx">' + e.fx.map(x => `<li><p class="w-fx-l" lang="nb">${h(x.l)}</p>${wDefs(x.d)}</li>`).join('') + '</ul>';
+}
+
+function wPron(e) {
+  if (!e.ipa && !e.bp) return '';
+  const s = store.settings();
+  let html = eyebrow('Pronunciation');
+  if (e.tone && s.showTone && e.ipa) {
+    const name = e.tone === 1 ? 'Tone 1, single tone' : 'Tone 2, double tone';
+    html += `<div class="w-tonebox" id="tone"><div class="w-contour">${toneSVG(e.ipa, e.tone)}</div>
+      <p class="w-tonename">${name}</p>
+      <details class="w-help"><summary>What is tone?</summary><p>${h(TONE_HELP[e.tone])}</p></details></div>`;
+  }
+  if (e.ipa2?.length) html += `<p class="w-small">Also pronounced ${e.ipa2.map(x => `<span class="w-ipa-s">/${h(x)}/</span>`).join(', ')}</p>`;
+  if (e.bp) html += `<p class="w-small">Bokmålsordboka: ${rich(e.bp)}</p>`;
+  if (e.ipa) html += '<p class="w-fine">Urban East Norwegian · NB Uttale</p>';
+  return html;
+}
+
+function wForm(cell, pcell, showIpa, prefix = '', suffix = '') {
+  if (!cell) return '<span class="w-none">—</span>';
+  const ws = cell.split('/'); const ps = (pcell || '').split('/');
+  return ws.map((w, k) => {
+    const alt = w.startsWith('~'); const word = w.replace(/^~/, '');
+    const [ipa, tone] = (ps[k] || '').split('|');
+    return `<button class="w-form ${alt ? 'alt' : ''}" data-say="${h(prefix + word)}" ${alt ? 'title="Registered, but not the standard form"' : ''}><span class="w-form-w" lang="nb">${h(prefix + word + suffix)}</span>${showIpa && ipa ? `<span class="w-form-ipa">/${h(ipa)}/${tone ? `<sup>${tone}</sup>` : ''}</span>` : ''}</button>`;
+  }).join('');
+}
+function wForms(e) {
+  if (!e.inf) return '';
+  const k = e.inf.k, f = e.inf.f, p = e.infp || [];
+  const showIpa = store.settings().showFormIpa;
+  const row = (label, cell, pc, pre, suf) => `<div class="w-frow"><span class="w-flabel">${h(label)}</span><span class="w-fval">${wForm(cell, pc, showIpa, pre, suf)}</span></div>`;
+  let html = eyebrow(k === 'v' || k === 'vs' ? 'Conjugation' : 'Forms');
+  if (k === 'n') {
+    html += `<div class="w-ngrid">
+      <span></span><span class="w-flabel">Indefinite</span><span class="w-flabel">Definite</span>
+      <span class="w-flabel">Singular</span><span>${wForm(f[0], p[0], showIpa)}</span><span>${wForm(f[1], p[1], showIpa)}</span>
+      <span class="w-flabel">Plural</span><span>${wForm(f[2], p[2], showIpa)}</span><span>${wForm(f[3], p[3], showIpa)}</span></div>`;
+  } else if (k === 'v' || k === 'vs') {
+    html += '<div class="w-flist">' + row('Infinitive', f[0], p[0], 'å ') + row('Present', f[1], p[1]) + row('Past', f[2], p[2]) +
+      row('Perfect', f[3], p[3], 'har ') + row('Imperative', f[4], p[4], '', '!') + '</div>';
+    if (k === 'v') {
+      const L = SLOT_LABELS.v;
+      const more = [5, 6, 7, 8, 9, 10, 11].filter(j => f[j]).map(j => row(L[j][0] + (L[j][1] ? ', ' + L[j][1] : ''), f[j], p[j])).join('');
+      if (more) html += `<details class="w-more"><summary>Passive and participles</summary><div class="w-flist">${more}</div></details>`;
+    }
+  } else {
+    html += '<div class="w-flist">' + SLOT_LABELS[k].map((l, j) => f[j] ? row(l[0] + (l[1] ? ', ' + l[1] : ''), f[j], p[j]) : '').join('') + '</div>';
+  }
+  const notes = [];
+  if (showIpa && (e.infp || []).some(x => x && x.includes('|'))) notes.push('Small numbers mark tone 1 or tone 2.');
+  if (f.some(c => c && c.includes('~'))) notes.push('Faded forms are registered but not standard.');
+  notes.push('Tap a form to hear it.');
+  return html + `<p class="w-fine">${notes.join(' ')}</p>`;
+}
+
+function wCompound(e) {
+  let html = '';
+  if (e.cmp) {
+    const [a, joint, b] = e.cmp;
+    const part = (p) => { const ids = db.byLemma(p); const r = ids.length ? db.row(ids[0]) : null;
+      return `<a class="w-part" href="${ids.length ? '#/w/' + ids[0] : '#/s/' + encodeURIComponent(p)}"><span class="w-part-w" lang="nb">${h(p)}</span>${r?.en || r?.no ? `<span class="w-part-g">${h((r.en || r.no).split('; ')[0])}</span>` : ''}</a>`; };
+    html += `<div class="w-parts">${part(a)}<span class="w-plus" ${joint ? 'title="Linking letter between the parts (fuge)"' : ''}>+${joint ? ` ${h(joint)} +` : ''}</span>${part(b)}</div>`;
+  }
+  const c = db.compoundsOf(e.l[0], 12);
+  const links = (ids) => ids.map(id => `<a href="#/w/${id}" lang="nb">${h(db.row(id).lemmas[0])}</a>`).join(', ');
+  if (!e.l[0].includes(' ')) {
+    if (c.first.length) html += `<p class="w-small"><span class="w-label">Starting with ${h(e.l[0])}:</span> ${links(c.first)}</p>`;
+    if (c.last.length) html += `<p class="w-small"><span class="w-label">Ending with ${h(e.l[0])}:</span> ${links(c.last)}</p>`;
+  }
+  return html ? eyebrow(e.cmp ? 'Made from' : 'Compounds') + html : '';
+}
+
+async function wExamples(e) {
+  if (!e.ts?.length) return '';
+  const S = await db.sentences();
+  const forms = new Set(e.l.map(x => x.toLowerCase()));
+  (e.inf?.f || []).forEach(c => c && c.split('/').forEach(w => forms.add(w.replace(/^~/, '').toLowerCase())));
+  const mark = (t) => h(t).replace(/[A-Za-zÆØÅæøåéèêóòôüäö'-]+/g, (w) => forms.has(w.toLowerCase()) ? `<b>${w}</b>` : w);
+  const items = e.ts.filter(id => S[id]).map(id => `<li><p class="w-ex-no" lang="nb">${mark(S[id][0])}${ttsAvailable() ? `<button class="w-speak small" data-say="${h(S[id][0])}" aria-label="Listen">${ICON.speaker}</button>` : ''}</p><p class="w-ex-en">${h(S[id][1][0])}</p></li>`);
+  return eyebrow('Examples', 'Tatoeba') + `<ul class="w-sents">${items.slice(0, 4).join('')}</ul>` +
+    (items.length > 4 ? `<details class="w-more"><summary>${items.length - 4} more examples</summary><ul class="w-sents">${items.slice(4).join('')}</ul></details>` : '');
+}
+
+function wOrigin(e) {
+  if (!e.ety && !e.etyen) return '';
+  return eyebrow('Word origin') + (e.ety ? `<p class="w-body" lang="nb">${rich(e.ety)}</p>` : '') + (e.etyen ? `<p class="w-small">${h(e.etyen)}</p>` : '');
+}
+
+async function wRelated(e) {
+  const bits = [];
+  const link = (w) => { const ids = db.byLemma(w); return `<a href="${ids.length ? '#/w/' + ids[0] : '#/s/' + encodeURIComponent(w)}" lang="nb">${h(w)}</a>`; };
+  if (e.syn?.length) bits.push(`<p class="w-small"><span class="w-label">Similar:</span> ${e.syn.map(link).join(', ')}</p>`);
+  if (e.ant?.length) bits.push(`<p class="w-small"><span class="w-label">Opposite:</span> ${e.ant.map(link).join(', ')}</p>`);
+  if (e.top?.length) {
+    const L = await db.lists();
+    const t = e.top.map(t => { const l = L.find(x => x.group === 'Topics' && x.name === t); return l ? `<a href="#/builtin/${encodeURIComponent(l.id)}">${h(t)}</a>` : ''; }).filter(Boolean).join(', ');
+    if (t) bits.push(`<p class="w-small"><span class="w-label">Topic lists:</span> ${t}</p>`);
+  }
+  const mine = store.listsContaining(e.id);
+  if (mine.length) bits.push(`<p class="w-small"><span class="w-label">In your lists:</span> ${mine.map(l => `<a href="#/list/${encodeURIComponent(l.id)}">${h(l.name)}</a>`).join(', ')}</p>`);
+  return bits.length ? eyebrow('Related') + bits.join('') : '';
+}
+
+function wNote(e) {
+  const n = store.note(e.id);
+  return eyebrow('Your note') + `${n ? '' : '<button class="w-addnote" id="noteOpen">Add a note</button>'}<textarea id="noteBox" class="w-note" rows="2" placeholder="Write anything that helps you remember this word" ${n ? '' : 'hidden'}>${h(n)}</textarea>`;
+}
+
+function wSources(e) {
+  const links = [];
+  if (e.src === 'bo') links.push(`<a href="https://ordbokene.no/bm/${e.id}" target="_blank" rel="noopener">ordbøkene.no</a>`);
+  links.push(`<a href="https://en.wiktionary.org/wiki/${encodeURIComponent(e.l[0])}#Norwegian_Bokm%C3%A5l" target="_blank" rel="noopener">Wiktionary</a>`);
+  return eyebrow('Sources') + `<p class="w-fine">${e.src === 'bo' ? 'Definition and forms from Bokmålsordboka, Språkrådet and the University of Bergen (CC BY 4.0).' : 'This word is from Wiktionary only (CC BY-SA 4.0); it isn’t in Bokmålsordboka.'}${e.en ? ' English from Wiktionary (CC BY-SA 4.0).' : ''} Open in ${links.join(' or ')}.</p>`;
 }
 
 function setupPager(id) {
@@ -347,169 +519,16 @@ function setupPager(id) {
   next.onclick = () => k < ids.length - 1 && go('#/w/' + ids[k + 1], 'forward', true);
 }
 
-function noPosLine(r, e) {
-  const no = POS_NO[r.pos] || '';
-  const ic = (e.ic || []).filter(x => x !== no && x !== POS[r.pos]);
-  const txt = [no !== POS[r.pos] ? no : '', ic.length ? ic.join(', ') : ''].filter(Boolean).join(' · ');
-  return txt ? ` · <i>${h(txt)}</i>` : '';
-}
-const sec = (title, no, body) => bandHTML(title, no) + `<div class="body">${body}</div>`;
-
-function secPron(e) {
-  if (!e.ipa && !e.bp) return '';
-  const s = store.settings();
-  let html = '';
-  if (e.ipa) {
-    html += `<div class="pron"><span class="ipa">/${h(e.ipa)}/</span>${(e.ipa2 || []).map(x => `<span class="ipa alt">/${h(x)}/</span>`).join('')}
-      ${ttsAvailable() ? `<button class="speak" data-say="${h(e.l[0])}" aria-label="Listen">${ICON.speaker}</button>` : ''}</div>`;
-    if (e.tone && s.showTone) {
-      html += `<div class="tone-box"><div class="tone-graph t${e.tone}">${toneSVG(e.ipa, e.tone)}</div>
-        <div><div class="tone-label t${e.tone}">Tonelag ${e.tone}</div><p class="muted small" style="margin:2px 0">${h(TONE_HELP[e.tone])}</p></div></div>`;
-    }
-    html += `<div class="src-note">Urban East Norwegian · NB Uttale</div>`;
-  }
-  if (e.bp) html += `<p class="small">Bokmålsordboka: ${rich(e.bp)}</p>`;
-  return sec('Pronunciation', 'uttale', html);
-}
-
-function senseLabels(t) { return t ? `<span class="labels">${t.map(x => `<span class="lab">${h(x)}</span>`).join('')}</span>` : ''; }
-function englishBody(e, r) {
-  if (e.en?.length) {
-    let html = '<ol class="senses">' + e.en.map(s => `<li>${senseLabels(s.t)}<span class="gl">${h(s.g)}</span>
-      ${(s.x || []).map(x => `<div class="ex"><span class="exno">${h(x[0])}</span>${ttsAvailable() ? `<button class="speak tiny" data-say="${h(x[0])}" aria-label="Listen">${ICON.speaker}</button>` : ''}<span class="exen">${h(x[1])}</span></div>`).join('')}</li>`).join('') + '</ol>';
-    if (e.ens) html += `<p class="note-shared">${ICON.info}<span>Wiktionary doesn’t say which “${h(e.l[0])}” these meanings belong to, so they cover every ${h(POS[r.pos] || 'word')} spelled this way. The Norwegian definition below is specific to this one.</span></p>`;
-    if (e.ensrc === 'tr') html += '<p class="note-shared">' + ICON.info + '<span>From English Wiktionary entries that give this word as their Norwegian translation (sense in brackets).</span></p>';
-    return html;
-  }
-  if (e.cmp) {
-    const parts = [e.cmp[0], e.cmp[2]].map(p => {
-      const ids = db.byLemma(p); const pr = ids.length ? db.row(ids[0]) : null;
-      return `<a href="${ids.length ? '#/w/' + ids[0] : '#/s/' + encodeURIComponent(p)}"><b>${h(p)}</b></a>${pr?.en ? ` <span class="muted">(${h(pr.en.split('; ')[0])})</span>` : ''}`;
-    });
-    return `<p class="note-shared">${ICON.info}<span>No English entry. Compound of ${parts.join(' + ')}.</span></p>`;
-  }
-  return `<p class="note-shared">${ICON.info}<span>No English translation in the open dictionaries. See the Norwegian definition below.</span></p>`;
-}
-function secEnglish(e, r) { return sec('English', 'engelsk', englishBody(e, r)); }
-
-function renderDefs(defs, depth = 0) {
-  return `<ol class="defs d${depth}">` + defs.map(d => {
-    let li = '';
-    if (d.e) li += `<div class="expl">${d.e.map(rich).join('; ')}</div>`;
-    if (d.x) li += `<ul class="noex">${d.x.map(x => `<li><span class="q">${rich(x[0])}</span>${x[1] ? ` <span class="xe">– ${rich(x[1])}</span>` : ''}</li>`).join('')}</ul>`;
-    if (d.c) li += `<div class="clist">${d.ci ? rich(d.ci) + ': ' : ''}${d.c.map(c => `<a class="xref" href="#/w/${c[1]}">${h(c[0])}</a>`).join(', ')}</div>`;
-    if (d.d) li += renderDefs(d.d, depth + 1);
-    return `<li>${li}</li>`;
-  }).join('') + '</ol>';
-}
-function secNorsk(e) {
-  if (!e.d?.length) return '';
-  return sec('Definition', 'Bokmålsordboka', renderDefs(e.d));
-}
-function secExpr(e) {
-  if (!e.fx?.length) return '';
-  return sec('Fixed expressions', 'faste uttrykk', '<ul class="fx">' + e.fx.map(x => `<li><div class="fxl">${h(x.l)}</div>${renderDefs(x.d)}</li>`).join('') + '</ul>');
-}
-
-function cellHTML(cell, pcell, showIpa, prefix = '', suffix = '') {
-  if (!cell) return '<span class="muted">—</span>';
-  const ws = cell.split('/'); const ps = (pcell || '').split('/');
-  return ws.map((w, k) => {
-    const alt = w.startsWith('~'); const word = w.replace(/^~/, '');
-    const [ipa, tone] = (ps[k] || '').split('|');
-    return `<span class="form ${alt ? 'alt' : ''}" data-say="${h(prefix + word)}" title="${alt ? 'Registered but not standard' : ''}">${h(prefix + word + suffix)}${showIpa && ipa ? `<span class="fipa">/${h(ipa)}/${tone ? `<i class="t${tone}">${tone}</i>` : ''}</span>` : ''}</span>`;
-  }).join('<span class="sep">/</span>');
-}
-function kvRow(label, sub, value) { return `<div class="k">${h(label)}${sub ? `<i>${h(sub)}</i>` : ''}</div><div class="v">${value}</div>`; }
-function secInflection(e) {
-  if (!e.inf) return '';
-  const k = e.inf.k, f = e.inf.f, p = e.infp || [];
-  const showIpa = store.settings().showFormIpa;
-  const labels = SLOT_LABELS[k];
-  let html = '';
-  if (k === 'v' || k === 'vs') {
-    const rows = [kvRow('Infinitive', 'infinitiv', cellHTML(f[0], p[0], showIpa, 'å ')), kvRow('Present', 'presens', cellHTML(f[1], p[1], showIpa)),
-      kvRow('Past', 'preteritum', cellHTML(f[2], p[2], showIpa)), kvRow('Perfect', 'presens perfektum', cellHTML(f[3], p[3], showIpa, 'har ')),
-      kvRow('Imperative', 'imperativ', cellHTML(f[4], p[4], showIpa, '', '!'))];
-    html += `<div class="kv">${rows.join('')}</div>`;
-    if (k === 'v') {
-      const more = labels.slice(5).map((l, j) => f[j + 5] ? kvRow(l[0] + (l[1] ? ' ' + l[1] : ''), l[2], cellHTML(f[j + 5], p[j + 5], showIpa)) : '').join('');
-      if (more) html += `<div class="kv-head">Passive & participles</div><div class="kv">${more}</div>`;
-    }
-  } else {
-    html += `<div class="kv">${labels.map((l, j) => f[j] ? kvRow(l[0] + (l[1] ? ' ' + l[1] : ''), l[2], cellHTML(f[j], p[j], showIpa)) : '').join('')}</div>`;
-  }
-  if (f.some(c => c && c.includes('~'))) html += '<div class="src-note">Faded forms are registered but not standard (common in speech).</div>';
-  return sec(k === 'v' || k === 'vs' ? 'Conjugation' : 'Inflection', 'bøying', html);
-}
-
-function secCompound(e) {
-  let html = '';
-  if (e.cmp) {
-    const [a, joint, b] = e.cmp;
-    const link = (p) => { const ids = db.byLemma(p); const r = ids.length ? db.row(ids[0]) : null;
-      return `<a class="part" href="${ids.length ? '#/w/' + ids[0] : '#/s/' + encodeURIComponent(p)}"><b>${h(p)}</b>${r?.en ? `<span>${h(r.en.split('; ')[0])}</span>` : r?.no ? `<span>${h(r.no)}</span>` : ''}</a>`; };
-    html += `<div class="cmp-tree"><div class="cmp-root">${h(e.l[0])}</div><div class="cmp-parts">${link(a)}${joint ? `<span class="joint" title="Linking letter (fuge)">+${h(joint)}+</span>` : '<span class="joint">+</span>'}${link(b)}</div></div>`;
-  }
-  const c = db.compoundsOf(e.l[0], 18);
-  if (!e.l[0].includes(' ') && (c.first.length || c.last.length)) {
-    const chips = (ids) => ids.map(id => { const r = db.row(id); return `<a class="chip" href="#/w/${id}">${h(r.lemmas[0])}</a>`; }).join('');
-    if (c.first.length) html += `<div class="chips-label">Starting with ${h(e.l[0])}</div><div class="chips">${chips(c.first)}</div>`;
-    if (c.last.length) html += `<div class="chips-label">Ending with ${h(e.l[0])}</div><div class="chips">${chips(c.last)}</div>`;
-  }
-  return html ? sec('Compounds', 'sammensetninger', html) : '';
-}
-
-async function secExamples(e) {
-  if (!e.ts?.length) return '';
-  const S = await db.sentences();
-  const forms = new Set(e.l.map(x => x.toLowerCase()));
-  (e.inf?.f || []).forEach(c => c && c.split('/').forEach(w => forms.add(w.replace(/^~/, '').toLowerCase())));
-  const mark = (t) => h(t).replace(/[A-Za-zÆØÅæøåéèêóòôüäö'-]+/g, (w) => forms.has(w.toLowerCase()) ? `<mark>${w}</mark>` : w);
-  const items = e.ts.filter(id => S[id]).map(id => `<li><div class="sno"><span>${mark(S[id][0])}</span>${ttsAvailable() ? `<button class="speak tiny" data-say="${h(S[id][0])}" aria-label="Listen">${ICON.speaker}</button>` : ''}</div><div class="sen">${h(S[id][1][0])}</div></li>`);
-  return sec('Examples', 'eksempler', `<ul class="sents">${items.slice(0, 5).join('')}</ul>` +
-    (items.length > 5 ? `<details class="more"><summary>Show ${items.length - 5} more</summary><ul class="sents">${items.slice(5).join('')}</ul></details>` : '') +
-    '<div class="src-note">Tatoeba</div>');
-}
-
-function secEtymology(e) {
-  if (!e.ety && !e.etyen) return '';
-  return sec('Word origin', 'etymologi', (e.ety ? `<p>${rich(e.ety)}</p>` : '') + (e.etyen ? `<p class="muted small">${h(e.etyen)}</p>` : ''));
-}
-
-async function secRelated(e) {
-  const bits = [];
-  const link = (w) => { const ids = db.byLemma(w); return `<a class="chip" href="${ids.length ? '#/w/' + ids[0] : '#/s/' + encodeURIComponent(w)}">${h(w)}</a>`; };
-  if (e.syn?.length) bits.push(`<div class="chips-label">Synonyms</div><div class="chips">${e.syn.map(link).join('')}</div>`);
-  if (e.ant?.length) bits.push(`<div class="chips-label">Antonyms</div><div class="chips">${e.ant.map(link).join('')}</div>`);
-  if (e.top?.length) {
-    const L = await db.lists();
-    const t = e.top.map(t => { const l = L.find(x => x.group === 'Topics' && x.name === t); return l ? `<a class="chip topic" href="#/builtin/${encodeURIComponent(l.id)}">${h(t)}</a>` : ''; }).join('');
-    if (t) bits.push(`<div class="chips-label">Topics</div><div class="chips">${t}</div>`);
-  }
-  const mine = store.listsContaining(e.id);
-  if (mine.length) bits.push(`<div class="chips-label">In your lists</div><div class="chips">${mine.map(l => `<a class="chip" href="#/list/${encodeURIComponent(l.id)}">${h(l.name)}</a>`).join('')}</div>`);
-  return bits.length ? sec('Related', 'relatert', bits.join('').replace('<div class="chips-label">', '<div class="chips-label" style="margin-top:2px">')) : '';
-}
-
-function secNote(e) {
-  const n = store.note(e.id);
-  return sec('Note', 'notat', `<div id="noteWrap">${n ? '' : '<div class="note-link" id="noteOpen">Write a note</div>'}<textarea id="noteBox" rows="2" placeholder="Your note…" ${n ? '' : 'hidden'}>${h(n)}</textarea></div>`);
-}
-
-function secSource(e) {
-  const links = [];
-  if (e.src === 'bo') links.push(`<a href="https://ordbokene.no/bm/${e.id}" target="_blank" rel="noopener">ordbøkene.no</a>`);
-  links.push(`<a href="https://en.wiktionary.org/wiki/${encodeURIComponent(e.l[0])}#Norwegian_Bokm%C3%A5l" target="_blank" rel="noopener">Wiktionary</a>`);
-  return sec('Sources', '', `<div class="src">${e.src === 'bo' ? 'Definition and inflection: Bokmålsordboka, Språkrådet og Universitetet i Bergen (CC BY 4.0).' : 'Entry from Wiktionary only (CC BY-SA 4.0), not in Bokmålsordboka.'}
-    ${e.en ? ' English: Wiktionary (CC BY-SA 4.0).' : ''}<br>Open in ${links.join(' · ')}</div>`);
-}
-
 function wireEntry(e, r) {
-  view().onclick = (ev) => { const b = ev.target.closest('[data-say]'); if (b) { ev.preventDefault(); speak(b.dataset.say); } };
+  view().onclick = (ev) => {
+    const j = ev.target.closest('[data-jump]');
+    if (j) { ev.preventDefault(); const t = $(`[data-sec="${j.dataset.jump}"]`); t?.scrollIntoView({ behavior: reducedMotion() ? 'auto' : 'smooth', block: 'start' }); t?.querySelector('details')?.setAttribute('open', ''); return; }
+    const b = ev.target.closest('[data-say]'); if (b) { ev.preventDefault(); speak(b.dataset.say); }
+  };
   $('#favBtn').onclick = () => {
     const on = store.toggleInList('fav', e.id);
     const b = $('#favBtn'); b.classList.toggle('on', on); b.innerHTML = on ? ICON.starFill : ICON.star;
+    b.setAttribute('aria-label', on ? 'Remove from Favourites' : 'Add to Favourites');
     toast(on ? 'Added to Favourites' : 'Removed from Favourites');
   };
   $('#listBtn').onclick = () => listPicker(e.id);
@@ -520,6 +539,24 @@ function wireEntry(e, r) {
     $('#noteOpen')?.addEventListener('click', () => { $('#noteOpen').remove(); nb.hidden = false; nb.focus(); grow(); });
     nb.addEventListener('input', () => { store.setNote(e.id, nb.value); grow(); });
   }
+  // iOS large-title behaviour: the bar shows the word only once the big headword has scrolled away
+  const hero = $('.w-word');
+  document.body.classList.add('hero-visible');
+  const io = new IntersectionObserver(([en]) => document.body.classList.toggle('hero-visible', en.isIntersecting), { rootMargin: '-60px 0px 0px 0px' });
+  io.observe(hero);
+  const prev = currentCleanup; currentCleanup = () => { prev?.(); io.disconnect(); document.body.classList.remove('hero-visible'); };
+}
+
+// Definitions in the older compact style, used on flashcard backs
+function renderDefs(defs, depth = 0) {
+  return `<ol class="defs d${depth}">` + defs.map(d => {
+    let li = '';
+    if (d.e) li += `<div class="expl">${d.e.map(rich).join('; ')}</div>`;
+    if (d.x) li += `<ul class="noex">${d.x.map(x => `<li><span class="q">${rich(x[0])}</span>${x[1] ? ` <span class="xe">– ${rich(x[1])}</span>` : ''}</li>`).join('')}</ul>`;
+    if (d.c) li += `<div class="clist">${d.ci ? rich(d.ci) + ': ' : ''}${d.c.map(c => `<a class="xref" href="#/w/${c[1]}">${h(c[0])}</a>`).join(', ')}</div>`;
+    if (d.d) li += renderDefs(d.d, depth + 1);
+    return `<li>${li}</li>`;
+  }).join('') + '</ol>';
 }
 
 // ------------------------------------------------------------------ modal helpers
