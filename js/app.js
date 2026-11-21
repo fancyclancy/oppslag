@@ -208,7 +208,7 @@ const pageTitle = (t) => `<h1 class="page-title">${h(t)}</h1>`;
 let titleObserver = null;
 function watchLargeTitle() {
   titleObserver?.disconnect(); titleObserver = null;
-  const el = $('.page-title, .w-word');
+  const el = $('.page-title, .home-title, .w-word');
   document.body.classList.toggle('hero-visible', !!el);
   if (!el) return;
   titleObserver = new IntersectionObserver(([en]) => document.body.classList.toggle('hero-visible', en.isIntersecting), { rootMargin: '-60px 0px 0px 0px' });
@@ -281,12 +281,21 @@ function viewHomeEmpty() {
   const day = new Date().toISOString().slice(0, 10);
   const wotd = db.randomCommon(day);
   const w = db.row(wotd);
-  const hist = store.S().history.slice(0, 6);
+  const hist = store.S().history.slice(0, 5);
   const m = db.meta();
+  const tile = (href, cls, icon, title, sub) => `<a class="tile4 ${cls}" href="${href}">${ICON[icon]}<div><b>${title}</b><span>${sub}</span></div></a>`;
   view().innerHTML = `
+    <h1 class="home-title">Ordbok.<span class="sub">Slå opp et ord.</span></h1>
     ${w ? `<a class="wotd" href="#/w/${wotd}"><div class="wotd-label">Word of the day</div>
-      <div class="wotd-word">${artOf(w) ? `<span class="art">${h(artOf(w))}</span> ` : ''}${h(w.lemmas[0])}</div>
-      ${w.ipa ? `<div class="wotd-ipa">/${h(w.ipa)}/</div>` : ''}<div class="wotd-gloss">${h((w.en || w.no).split('; ').slice(0, 2).join('; '))}</div></a>` : ''}
+      <div class="wotd-word">${artOf(w) ? `<span class="art">${h(artOf(w))}</span>` : ''}${h(w.lemmas[0])}</div>
+      ${w.ipa ? `<div class="wotd-ipa">/${h(w.ipa)}/</div>` : ''}<div class="wotd-gloss">${h((w.en || w.no).split('; ').slice(0, 2).join('; '))}</div>
+      <div class="wotd-foot"><span>${h(new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' }))}</span>${ICON.arrow}</div></a>` : ''}
+    <div class="tiles4">
+      ${tile('#/builtin', 't-sage', 'list', 'Word lists', 'Curated sets')}
+      ${tile('#/cards', 't-mustard', 'cards', 'Flashcards', 'Spaced repetition')}
+      ${tile('#/reader', 't-plum', 'reader', 'Reader', 'Whole sentences')}
+      ${tile('#/lists', 't-rose', 'bookmark', 'Bookmarks', 'Saved words')}
+    </div>
     ${hist.length ? bandHTML('Recently viewed', '', '<a href="#/history" class="more">See all</a>') + rowsHTML(hist.map(x => x.id)) : ''}
     ${bandHTML('Ways to search')}
     <ul class="tips">
@@ -341,9 +350,11 @@ function wKicker(r, e) {
   if (POS[r.pos]) bits.push(POS[r.pos]);
   if (r.pos === 'n' && r.g) bits.push([...r.g].map(c => GENDER_WORD[c]).join(' or '));
   const no = POS_NO[r.pos];
-  return `${h(bits.join(', '))}${no && no !== POS[r.pos] ? ` <span class="w-kicker-no">· ${h(no)}</span>` : ''}`;
+  return `${h(bits.join(', ') || 'word')}${no && no !== POS[r.pos] ? ` <span class="w-kicker-no">· ${h(no)}</span>` : ''}`;
 }
 
+// Each word class gets one of the four colour fields (noun mustard, verb sage, adjective plum, other rose)
+const fieldOf = (pos) => pos === 'n' ? 'f-mustard' : pos === 'v' ? 'f-sage' : pos === 'a' ? 'f-plum' : 'f-rose';
 function wHero(e, r, fromForm, enInHero) {
   const lemma = e.l[0];
   const art = artOf(r);
@@ -358,14 +369,17 @@ function wHero(e, r, fromForm, enInHero) {
   if (e.cls?.includes('irrplural')) meta.push('Irregular plural');
   if (r.wk) meta.push('From Wiktionary only');
   const tone = e.tone ? `<a class="w-tone" href="#tone" data-jump="pron" title="Norwegian pitch accent">Tone ${e.tone}</a>` : '';
-  return `<header class="w-hero">
+  return `<header class="w-hero ${fieldOf(r.pos)}">
     ${formNote}
     <p class="w-kicker">${wKicker(r, e)}</p>
-    <h1 class="w-word">${art ? `<span class="w-art">${h(art)}</span> ` : ''}${h(e.l.join(' / '))}${e.hg ? `<sup class="w-hg" title="Homograph ${e.hg}: one of several words spelled ${h(lemma)}">${e.hg}</sup>` : ''}</h1>
-    ${e.ipa || ttsAvailable() ? `<div class="w-say">${e.ipa ? `<span class="w-ipa">/${h(e.ipa)}/</span>` : ''}${ttsAvailable() ? `<button class="w-speak" data-say="${h(lemma)}" aria-label="Listen to ${h(lemma)}">${ICON.speaker}</button>` : ''}${tone}</div>` : ''}
-    ${enInHero ? `<div class="w-meanings">${wEnglishBody(e, r)}</div>` : ''}
-    ${meta.length ? `<p class="w-meta">${meta.map(h).join('<span aria-hidden="true"> · </span>')}</p>` : ''}
-  </header>`;
+    <div class="w-hero-body">
+      <h1 class="w-word">${art ? `<span class="w-art">${h(art)}</span>` : ''}${h(e.l.join(' / '))}${e.hg ? `<sup class="w-hg" title="Homograph ${e.hg}: one of several words spelled ${h(lemma)}">${e.hg}</sup>` : ''}</h1>
+      ${e.ipa || tone ? `<div class="w-say">${e.ipa ? `<span class="w-ipa">/${h(e.ipa)}/</span>` : ''}${e.ipa && tone ? '<span class="sep">·</span>' : ''}${tone}</div>` : ''}
+      ${ttsAvailable() ? `<button class="pill-out w-listen" data-say="${h(lemma)}" aria-label="Listen to ${h(lemma)}"><span>Listen</span>${ICON.arrow}</button>` : ''}
+    </div>
+  </header>
+  ${meta.length ? `<p class="w-meta">${meta.map(h).join('<span aria-hidden="true"> · </span>')}</p>` : ''}
+  ${enInHero ? `<div class="w-meanings">${wEnglishBody(e, r)}</div>` : ''}`;
 }
 
 const eyebrow = (label, source = '') => `<h2 class="w-eyebrow">${h(label)}${source ? `<span class="w-src"> · ${h(source)}</span>` : ''}</h2>`;
@@ -839,7 +853,7 @@ async function viewReview(deckId) {
     const remaining = items.length + 1 + again.length;
     setNav({ title: d.name, back: '#/cards', right: `<span class="muted small" style="padding-right:6px">${remaining} left</span>` });
     view().innerHTML = `<div class="study-progress"><div style="width:${total ? Math.min(100, done / Math.max(total, done + remaining) * 100) : 0}%"></div></div>
-      <div class="flash" id="flash">
+      <div class="flash ${fieldOf(r.pos)}" id="flash">
         <div class="front">${front}</div>
         ${s.typeAnswer ? `<input id="typed" class="typed" placeholder="${dir === 'no' ? 'Type the meaning…' : 'Type the Norwegian word…'}" autocapitalize="off" autocomplete="off" spellcheck="false">` : ''}
         <div class="cardback" hidden>${backParts.join('')}<div id="typedResult"></div>
@@ -963,7 +977,7 @@ function viewSettings() {
   view().innerHTML = `${pageTitle('Settings')}
   ${bandHTML('Appearance')}<div class="group">
     <label class="field"><span>Theme</span><select id="theme"><option value="auto">Match device</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
-    <div class="field"><span>Accent</span><div class="swatches">${ACCENTS.map(([k, n, c]) => `<button class="sw ${k === s.accent ? 'on' : ''}" data-c="${k}" style="background:${c}" aria-label="${n}" title="${n}"></button>`).join('')}<input type="color" id="accent" value="${(ACCENTS.find(a => a[0] === s.accent) || [0, 0, s.accent])[2]}" aria-label="Custom colour"></div></div>
+
     <label class="field"><span>Text size</span><input type="range" id="fs" min="0.85" max="1.4" step="0.05" value="${s.fontScale}"></label></div>
   ${bandHTML('Word page')}<div class="group">
     <ul class="reorder" id="ro">${s.sections.map(k => `<li data-k="${k}"><label class="check"><input type="checkbox" ${s.hidden.includes(k) ? '' : 'checked'}><span>${SECTION_NAMES[k]}</span></label><button data-up aria-label="Move up">${ICON.up}</button><button data-down aria-label="Move down">${ICON.down}</button></li>`).join('')}</ul>
@@ -990,8 +1004,6 @@ function viewSettings() {
     <div class="row"><button class="btn" id="offBtn">${ICON.download} Download full dictionary</button></div></div>`;
   $('#theme').value = s.theme;
   $('#theme').addEventListener('change', (ev) => { store.setSetting('theme', ev.target.value); applyTheme(); });
-  $$('.sw').forEach(b => b.addEventListener('click', () => { store.setSetting('accent', b.dataset.c); applyTheme(); $$('.sw').forEach(x => x.classList.toggle('on', x === b)); $('#accent').value = ACCENTS.find(a => a[0] === b.dataset.c)[2]; }));
-  $('#accent').addEventListener('input', (ev) => { store.setSetting('accent', ev.target.value); applyTheme(); $$('.sw').forEach(x => x.classList.remove('on')); });
   $('#fs').addEventListener('input', (ev) => { store.setSetting('fontScale', +ev.target.value); applyTheme(); });
   const saveOrder = () => {
     store.setSetting('sections', $$('#ro li').map(li => li.dataset.k));
@@ -1034,6 +1046,7 @@ function viewAbout() {
     <li><b>NB Uttale</b>: IPA and tonelag (Urban East Norwegian). Språkbanken, Nasjonalbiblioteket. CC0.</li>
     <li><b>Wiktionary</b>: English meanings, English etymology, topics, synonyms. Extracted by <a href="https://kaikki.org" target="_blank" rel="noopener">kaikki.org</a>. CC BY-SA 4.0.</li>
     <li><b>Tatoeba</b>: example sentences with English translations. <a href="https://tatoeba.org" target="_blank" rel="noopener">tatoeba.org</a>. CC BY 2.0 FR.</li>
+    <li><b>Type</b>: Schibsted Grotesk (Schibsted Media), Newsreader (Production Type), Gentium Book Plus (SIL). SIL Open Font Licence. <b>Icons</b>: Phosphor (MIT).</li>
     <li><b>FrequencyWords</b> (H. Dave, OpenSubtitles 2018): word frequency for ranking and “common” labels. CC BY-SA 4.0.</li>
    </ul></div>
    <p class="page-intro" style="margin-top:12px">Content has been reformatted and combined. English meanings are matched to Bokmålsordboka entries by spelling, word class and gender; where Wiktionary can’t tell homographs apart, the entry says so.</p>
@@ -1101,7 +1114,7 @@ async function boot() {
   });
   addEventListener('scroll', () => document.body.classList.toggle('scrolled', scrollY > 4), { passive: true });
   try {
-    await db.load((m) => { $('#splash-msg').textContent = m; });
+    await db.load(() => {});   // the splash keeps its credit line while loading
   } catch (e) {
     $('#splash-msg').textContent = 'Could not load the dictionary: ' + e.message; return;
   }
