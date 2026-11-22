@@ -104,8 +104,19 @@ async function route() {
   location.hash = '#/';
 }
 
+// A back or forward made by the system's swipe has already been animated by iOS (the old page slid
+// away under the finger); running our own transition after it plays the move twice. Browsers that know
+// say so with hasUAVisualTransition; elsewhere, a history step during or just after an edge touch is one.
+let touching = false, edge = false, lastTouchEnd = -1e9, systemNav = false, skipAnim = false;
+addEventListener('popstate', (e) => {
+  systemNav = !!e.hasUAVisualTransition || (edge && (touching || performance.now() - lastTouchEnd < 700));
+  skipAnim = systemNav;
+});
+addEventListener('touchstart', () => { systemNav = false; }, { passive: true, capture: true });
+
 async function onHashChange() {
   const hash = location.hash || '#/';
+  const instant = skipAnim; skipAnim = false;
   scrollMem.set(lastHash, scrollY);
   let dir;
   if (navStack.length > 1 && navStack[navStack.length - 2] === hash) { navStack.pop(); dir = 'back'; }
@@ -116,7 +127,7 @@ async function onHashChange() {
   }
   lastHash = hash;
   const y = dir === 'back' ? (scrollMem.get(hash) || 0) : 0;
-  await transition(dir, hash, async () => {
+  await transition(instant ? 'none' : dir, hash, async () => {
     restoreY = y;
     try { await route(); } finally { restoreY = 0; }
     window.scrollTo(0, y);
@@ -141,9 +152,9 @@ async function transition(dir, hash, fn) {
   const my = ++navSeq;
   const pre = preload(hash);
   if (pre) { await pre; if (my !== navSeq) return; }   // a newer navigation took over while loading
-  if (!document.startViewTransition || reducedMotion() || !document.body.classList.contains('ready')) return fn();
   const root = document.documentElement;
-  root.dataset.nav = dir;
+  if (dir === 'none' || !document.startViewTransition || !document.body.classList.contains('ready')) { root.classList.remove('vt'); return fn(); }
+  root.dataset.nav = reducedMotion() ? 'fade' : dir;   // reduced motion keeps the crossfade, drops the movement
   root.classList.add('vt');
   // never let a slow render hold the frozen screen long enough for the browser to abort the animation
   const t = document.startViewTransition(() => Promise.race([fn(), new Promise(r => setTimeout(r, 600))]));
@@ -1317,14 +1328,35 @@ async function boot() {
   $('#scrim').addEventListener('click', closeDrawer);
   setupSearch();
   setupHold();
-  // edge swipe: back on detail pages, menu on top-level pages
-  let sx = null, sy = null;
-  document.addEventListener('touchstart', (e) => { const t = e.touches[0]; sx = t.clientX < 22 ? t.clientX : null; sy = t.clientY; }, { passive: true });
+  // Edge swipe. iOS has its own swipe-back that follows the finger; acting on the same swipe here ran a
+  // second animation over the system's (the jitter). When iOS takes the gesture the page gets a
+  // touchcancel, so the app acts only on a swipe that ended normally, after the finger lifts, and only
+  // if nothing navigated meanwhile.
+  let sx = null, sy = null, swiped = false;
+  document.addEventListener('touchstart', (e) => {
+    const t = e.touches[0]; touching = true; swiped = false;
+    edge = t.clientX < 24 || t.clientX > innerWidth - 24;
+    sx = t.clientX < 22 ? t.clientX : null; sy = t.clientY;
+  }, { passive: true });
   document.addEventListener('touchmove', (e) => {
     if (sx === null) return;
     const t = e.touches[0];
-    if (t.clientX - sx > 70 && Math.abs(t.clientY - sy) < 40) { sx = null; backTarget ? goBack() : openDrawer(); }
+    if (t.clientX - sx > 70 && Math.abs(t.clientY - sy) < 40) swiped = true;
   }, { passive: true });
+  const endTouch = (cancelled) => {
+    touching = false; lastTouchEnd = performance.now();
+    if (!swiped || cancelled) { swiped = false; return; }   // touchcancel: the system took the gesture
+    swiped = false; sx = null;
+    const at = lastHash;
+    // give a system swipe-back time to report itself before acting, so one swipe never goes back twice
+    setTimeout(() => {
+      if (lastHash !== at || systemNav) return;   // the system's swipe-back already navigated
+      edge = false;   // this one is ours: animate it
+      backTarget ? goBack() : openDrawer();
+    }, 450);
+  };
+  document.addEventListener('touchend', () => endTouch(false), { passive: true });
+  document.addEventListener('touchcancel', () => endTouch(true), { passive: true });
   document.addEventListener('keydown', (e) => {
     const typing = e.target.matches('input,textarea,select');
     if ((e.key === '/' && !typing) || (e.key === 'k' && (e.metaKey || e.ctrlKey))) { e.preventDefault(); if (!document.body.classList.contains('has-search')) location.hash = '#/'; setTimeout(() => { qInput().focus(); qInput().select(); }, 30); }
