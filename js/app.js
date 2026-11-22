@@ -48,7 +48,7 @@ function setNav({ title = '', back = null, right = '', search = false }) {
   if (!search) document.body.classList.remove('typing');
 }
 function goBack() {
-  if (navStack.length > 1) history.back();
+  if (navStack.length > 1) { expectBack = true; history.back(); }
   else go(backTarget || '#/', 'back', true);
 }
 function openDrawer() { document.body.classList.add('drawer-open'); }
@@ -104,22 +104,27 @@ async function route() {
   location.hash = '#/';
 }
 
-// A back or forward made by the system's swipe has already been animated by iOS (the old page slid
-// away under the finger); running our own transition after it plays the move twice. Browsers that know
-// say so with hasUAVisualTransition; elsewhere, a history step during or just after an edge touch is one.
-let touching = false, edge = false, lastTouchEnd = -1e9, systemNav = false, skipAnim = false;
+// A back made with the browser's own swipe (Safari in a tab) has already been animated by the browser;
+// playing ours after it would show the move twice. Browsers that know say so with hasUAVisualTransition;
+// Safari tabs that don't are recognised by a finger dragging in from the left edge (a tap on the back
+// button never counts). The Home Screen app has no system swipe-back: the app does its own (boot()).
+const STANDALONE = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+let skipAnim = false, browserSwipeAt = -1e9, expectBack = false, linkTapAt = -1e9;
+document.addEventListener('click', (e) => { if (e.target.closest('a[href^="#"]')) linkTapAt = performance.now(); }, true);
 addEventListener('popstate', (e) => {
-  systemNav = !!e.hasUAVisualTransition || (edge && (touching || performance.now() - lastTouchEnd < 700));
-  skipAnim = systemNav;
+  skipAnim = !!e.hasUAVisualTransition || (!STANDALONE && performance.now() - browserSwipeAt < 800);
 });
-addEventListener('touchstart', () => { systemNav = false; }, { passive: true, capture: true });
 
 async function onHashChange() {
   const hash = location.hash || '#/';
   const instant = skipAnim; skipAnim = false;
   scrollMem.set(lastHash, scrollY);
   let dir;
-  if (navStack.length > 1 && navStack[navStack.length - 2] === hash) { navStack.pop(); dir = 'back'; }
+  // a real step back (the back button, a swipe, the browser's back) pops; following a link to the page
+  // you came from is a new step forward, or the next back would go the wrong way
+  const isBack = expectBack || performance.now() - linkTapAt > 400;
+  expectBack = false;
+  if (isBack && navStack.length > 1 && navStack[navStack.length - 2] === hash) { navStack.pop(); dir = 'back'; }
   else {
     navStack.push(hash);
     const a = depth(lastHash), b = depth(hash);
@@ -145,19 +150,25 @@ function preload(hash) {
   else if (/^#\/examples/.test(hash)) p.push(sents());
   else if (/^#\/s\//.test(hash) && !db.formsLoaded()) p.push(db.formsReady());
   if (!p.length) return null;
-  return Promise.race([Promise.allSettled(p), new Promise(r => setTimeout(r, 1500))]);
+  return Promise.race([Promise.allSettled(p), new Promise(r => setTimeout(r, 4000))]);
 }
 let navSeq = 0;
 async function transition(dir, hash, fn) {
   const my = ++navSeq;
   const pre = preload(hash);
-  if (pre) { await pre; if (my !== navSeq) return; }   // a newer navigation took over while loading
+  if (pre) {
+    // normally everything is already loaded (warmUp) and this resolves at once; on a cold first visit
+    // the current page dims slightly after a moment so the tap visibly registered
+    const dim = setTimeout(() => document.body.classList.add('nav-wait'), 120);
+    await pre; clearTimeout(dim); document.body.classList.remove('nav-wait');
+    if (my !== navSeq) return;   // a newer navigation took over while loading
+  }
   const root = document.documentElement;
   if (dir === 'none' || !document.startViewTransition || !document.body.classList.contains('ready')) { root.classList.remove('vt'); return fn(); }
   root.dataset.nav = reducedMotion() ? 'fade' : dir;   // reduced motion keeps the crossfade, drops the movement
   root.classList.add('vt');
-  // never let a slow render hold the frozen screen long enough for the browser to abort the animation
-  const t = document.startViewTransition(() => Promise.race([fn(), new Promise(r => setTimeout(r, 600))]));
+  // the data is loaded, so the page is fully built before the new snapshot is taken: never half-drawn
+  const t = document.startViewTransition(fn);
   t.ready.catch(() => {}); t.updateCallbackDone.catch(() => {});   // skipped when a newer navigation starts
   try { await t.finished; } catch {}
   if (my === navSeq) root.classList.remove('vt');
@@ -702,6 +713,19 @@ async function viewSentence(sid) {
   wireSave(key);
   $('#sxCopy').onclick = async () => { try { await navigator.clipboard.writeText(`${x[0]}\n${x[1][0]}`); toast('Sentence copied'); } catch { toast('Copying was blocked'); } };
   view().onclick = (ev) => { const b = ev.target.closest('[data-say]'); if (b) { ev.preventDefault(); speak(b.dataset.say); } };
+}
+
+// After launch, load the rest of the data one file at a time while the first screen sits idle, so no
+// page ever has to load (and freeze) in the middle of a transition. Each parse is one long task, so
+// it waits for any running transition to finish and leaves gaps for taps in between.
+function warmUp() {
+  const jobs = [() => db.lists(), () => sents(), () => db.formsReady()];
+  const next = () => {
+    if (!jobs.length) return;
+    if (document.documentElement.classList.contains('vt') || document.body.classList.contains('nav-wait')) return setTimeout(next, 300);
+    Promise.resolve().then(jobs.shift()).catch(() => {}).finally(() => setTimeout(next, 200));
+  };
+  setTimeout(next, 900);
 }
 
 // Press-and-hold: sentences open on their own page; decks open their options
@@ -1328,35 +1352,18 @@ async function boot() {
   $('#scrim').addEventListener('click', closeDrawer);
   setupSearch();
   setupHold();
-  // Edge swipe. iOS has its own swipe-back that follows the finger; acting on the same swipe here ran a
-  // second animation over the system's (the jitter). When iOS takes the gesture the page gets a
-  // touchcancel, so the app acts only on a swipe that ended normally, after the finger lifts, and only
-  // if nothing navigated meanwhile.
-  let sx = null, sy = null, swiped = false;
-  document.addEventListener('touchstart', (e) => {
-    const t = e.touches[0]; touching = true; swiped = false;
-    edge = t.clientX < 24 || t.clientX > innerWidth - 24;
-    sx = t.clientX < 22 ? t.clientX : null; sy = t.clientY;
-  }, { passive: true });
+  // Edge swipe from the left: back on detail pages, the menu on top-level pages. The Home Screen app
+  // has no system swipe-back, so the app acts as soon as the drag is clearly sideways. In a Safari tab
+  // the browser owns that edge: the app only notes the drag, so the browser's back isn't animated twice.
+  let sx = null, sy = null;
+  document.addEventListener('touchstart', (e) => { const t = e.touches[0]; sx = t.clientX < 24 ? t.clientX : null; sy = t.clientY; }, { passive: true });
   document.addEventListener('touchmove', (e) => {
     if (sx === null) return;
-    const t = e.touches[0];
-    if (t.clientX - sx > 70 && Math.abs(t.clientY - sy) < 40) swiped = true;
+    const t = e.touches[0], dx = t.clientX - sx, dy = Math.abs(t.clientY - sy);
+    if (dy > 40) { sx = null; return; }
+    if (!STANDALONE) { if (dx > 12) browserSwipeAt = performance.now(); return; }
+    if (dx > 60) { sx = null; backTarget ? goBack() : openDrawer(); }
   }, { passive: true });
-  const endTouch = (cancelled) => {
-    touching = false; lastTouchEnd = performance.now();
-    if (!swiped || cancelled) { swiped = false; return; }   // touchcancel: the system took the gesture
-    swiped = false; sx = null;
-    const at = lastHash;
-    // give a system swipe-back time to report itself before acting, so one swipe never goes back twice
-    setTimeout(() => {
-      if (lastHash !== at || systemNav) return;   // the system's swipe-back already navigated
-      edge = false;   // this one is ours: animate it
-      backTarget ? goBack() : openDrawer();
-    }, 450);
-  };
-  document.addEventListener('touchend', () => endTouch(false), { passive: true });
-  document.addEventListener('touchcancel', () => endTouch(true), { passive: true });
   document.addEventListener('keydown', (e) => {
     const typing = e.target.matches('input,textarea,select');
     if ((e.key === '/' && !typing) || (e.key === 'k' && (e.metaKey || e.ctrlKey))) { e.preventDefault(); if (!document.body.classList.contains('has-search')) location.hash = '#/'; setTimeout(() => { qInput().focus(); qInput().select(); }, 30); }
@@ -1384,8 +1391,7 @@ async function boot() {
   if (hold > 0 && !document.documentElement.classList.contains('no-splash')) await new Promise(r => setTimeout(r, hold));
   document.body.classList.add('ready');
   setTimeout(() => $('#splash')?.remove(), 500);
-  // search's inflected-forms table loads once the first screen is settled
-  setTimeout(() => db.formsReady().catch(() => {}), 600);
+  warmUp();
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     // A new release installs a new service worker. On a fresh launch the page already came from the
     // network (the shell is network-first), so nothing to do. If the app was resumed and is in use,
