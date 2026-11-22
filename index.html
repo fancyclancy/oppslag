@@ -15,6 +15,9 @@
       var t = s.theme || 'auto';
       var dark = t === 'dark' || (t === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
       document.querySelector('meta[name="theme-color"]').setAttribute('content', dark ? '#1C1B1C' : '#F5F2EC');
+      if (t !== 'auto') document.documentElement.dataset.theme = t;   // the launch screen uses the chosen theme too
+      // the app reloaded itself in the background to update: come back without the launch logo
+      if (sessionStorage.getItem('oppslag.quiet')) { sessionStorage.removeItem('oppslag.quiet'); document.documentElement.classList.add('no-splash'); }
     } catch (e) {}
   })();
 </script>
@@ -31,7 +34,7 @@
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<div id="splash" aria-label="Oppslag"><p class="splash-word" aria-hidden="true"><span>Opp</span><span>slag</span></p><div class="splash-foot"><span id="splash-msg">Bokmålsordboka · Språkrådet og Universitetet i Bergen</span></div></div>
+<div id="splash" aria-hidden="true"><img src="icons/book-192.png" alt="" width="112" height="112"><p id="splash-msg" hidden></p></div>
 
 <header class="topbar">
   <div class="navrow">

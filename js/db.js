@@ -4,6 +4,15 @@ let IDX = null;      // columnar index
 let LOW = null;      // lowercased lemma strings ('|' separated variants)
 let ENL = null;      // lowercased English short glosses
 let FORMS = null;    // inflected form -> [ids]
+let FORMS_READY = null;
+// Starts loading the forms table (once); resolves when searches can find inflected forms
+export function formsReady() {
+  if (!FORMS_READY) FORMS_READY = fetch(DATA + 'forms.json').then(r => { if (!r.ok) throw new Error('forms ' + r.status); return r.json(); })
+    .then((f) => { FORMS = f; FORMS_OK = true; }).catch((e) => { FORMS_READY = null; throw e; });
+  return FORMS_READY;
+}
+let FORMS_OK = false;
+export const formsLoaded = () => FORMS_OK;
 let POS_OF = null;   // id -> row
 let META = null;
 let SENT = null;
@@ -22,8 +31,11 @@ function lemmaMap() {
 export async function load(onProgress) {
   const get = async (f) => { const r = await fetch(DATA + f); if (!r.ok) throw new Error(f + ' ' + r.status); return r.json(); };
   onProgress?.('Loading dictionary…');
-  const [idx, forms, meta] = await Promise.all([get('index.json'), get('forms.json'), get('meta.json')]);
-  IDX = idx; FORMS = forms; META = meta;
+  // The inflected-forms table is only needed for searching, so it loads after the first screen
+  // is up: on a phone that halves the JSON the app parses before it can open.
+  const [idx, meta] = await Promise.all([get('index.json'), get('meta.json')]);
+  IDX = idx; META = meta; FORMS = {};
+
   const n = IDX.id.length;
   LOW = new Array(n); ENL = new Array(n); POS_OF = new Map();
   for (let i = 0; i < n; i++) {

@@ -67,11 +67,12 @@ const routes = [
   [/^#\/cards$/, () => viewDecks()],
   [/^#\/review\/(.+)$/, (m) => viewReview(decodeURIComponent(m[1]))],
   [/^#\/reader$/, () => viewReader()],
+  [/^#\/x\/(\d+)$/, (m) => viewSentence(m[1])],
   [/^#\/examples(?:\/(.*))?$/, (m) => viewExamples(m[1] ? decodeURIComponent(m[1]) : '')],
   [/^#\/settings$/, () => viewSettings()],
   [/^#\/about$/, () => viewAbout()],
 ];
-const depth = (hash) => /^#\/w\//.test(hash) ? 2 : /^#\/(list|builtin|review)\//.test(hash) ? 1 : 0;
+const depth = (hash) => /^#\/(w|x)\//.test(hash) ? 2 : /^#\/(list|builtin|review)\//.test(hash) ? 1 : 0;
 const isSearchHash = (hash) => /^#?\/?(s\/.*)?$/.test(hash);
 const navStack = [location.hash || '#/'];
 const scrollMem = new Map();
@@ -202,6 +203,42 @@ function resultRow(id, extra = '', href = null) {
     <div class="res-gloss">${short ? `<span class="res-pos">${short}</span> ` : ''}${gloss}</div>${extra}</a>`;
 }
 function rowsHTML(ids) { return ids.map(id => resultRow(id)).join(''); }
+
+// Example sentences can be saved like words. In lists and decks they are stored as "x<sentence id>".
+const isSent = (id) => typeof id === 'string' && id[0] === 'x';
+let SENTS = null;
+async function sents() { return SENTS ||= await db.sentences(); }
+function sentRow(key, extra = '') {
+  const sid = key.slice(1), x = SENTS?.[sid];
+  if (!x) return '';
+  return `<a class="res sres" href="#/x/${sid}"><div class="sres-no" lang="nb">${h(x[0])}</div><div class="res-gloss">${h(x[1][0])}</div>${extra}</a>`;
+}
+function sentCell(key) {
+  const sid = key.slice(1), x = SENTS?.[sid];
+  return x ? `<a class="wcell scell" href="#/x/${sid}"><b lang="nb">${h(x[0])}</b><span>${h(x[1][0])}</span></a>` : '';
+}
+// Shown under example sentences until the reader has opened one by holding it
+function holdHint() {
+  try { if (localStorage.getItem('oppslag.heldSentence')) return ''; } catch {}
+  return '<p class="hold-hint">Press and hold a sentence to open it on its own page, with its words and a save button.</p>';
+}
+// Split Norwegian text into dictionary words, preferring two- and three-word expressions
+function analyse(text) {
+  const toks = [...text.matchAll(/[A-Za-zÆØÅæøåÉéÈèÊêÓóÒòÔôÜüÄäÖö]+(?:[-'][A-Za-zÆØÅæøå]+)*/g)];
+  const out = [];
+  for (let k = 0; k < toks.length; k++) {
+    let m = null;
+    for (const len of [3, 2]) {
+      if (k + len > toks.length) continue;
+      const phrase = toks.slice(k, k + len).map(t => t[0]).join(' ');
+      const ids = db.byLemma(phrase);
+      if (ids.length) { m = { tok: phrase, ids, len, at: k }; break; }
+    }
+    if (!m) m = { tok: toks[k][0], ids: db.lookupToken(toks[k][0]), len: 1, at: k };
+    out.push(m); k += m.len - 1;
+  }
+  return { toks, groups: out };
+}
 function rememberResults(ids) { try { sessionStorage.setItem('results', JSON.stringify(ids.slice(0, 300))); } catch {} }
 const pageTitle = (t) => `<h1 class="page-title">${h(t)}</h1>`;
 // iOS large-title behaviour: the bar shows the page's title only once the big one has scrolled away
@@ -242,6 +279,11 @@ async function viewHome(q) {
   $('#clearQ').hidden = !qInput().value;
   document.title = q ? `${q} – Oppslag` : 'Oppslag';
   if (!q.trim()) return viewHomeEmpty();
+  if (!db.formsLoaded()) {
+    const my = routeSeq;
+    await db.formsReady().catch(() => {});
+    if (my !== routeSeq) return;
+  }
   const t0 = performance.now();
   const res = db.search(q);
   const ms = Math.round(performance.now() - t0);
@@ -499,8 +541,8 @@ async function wExamples(e) {
   const forms = new Set(e.l.map(x => x.toLowerCase()));
   (e.inf?.f || []).forEach(c => c && c.split('/').forEach(w => forms.add(w.replace(/^~/, '').toLowerCase())));
   const mark = (t) => h(t).replace(/[A-Za-zÆØÅæøåéèêóòôüäö'-]+/g, (w) => forms.has(w.toLowerCase()) ? `<b>${w}</b>` : w);
-  const items = e.ts.filter(id => S[id]).map(id => `<li><p class="w-ex-no" lang="nb">${mark(S[id][0])}${ttsAvailable() ? `<button class="w-speak small" data-say="${h(S[id][0])}" aria-label="Listen">${ICON.speaker}</button>` : ''}</p><p class="w-ex-en">${h(S[id][1][0])}</p></li>`);
-  return eyebrow('Examples', 'Tatoeba') + `<ul class="w-sents">${items.slice(0, 4).join('')}</ul>` +
+  const items = e.ts.filter(id => S[id]).map(id => `<li data-sent="${id}"><p class="w-ex-no" lang="nb">${mark(S[id][0])}${ttsAvailable() ? `<button class="w-speak small" data-say="${h(S[id][0])}" aria-label="Listen">${ICON.speaker}</button>` : ''}</p><p class="w-ex-en">${h(S[id][1][0])}</p></li>`);
+  return eyebrow('Examples', 'Tatoeba') + holdHint() + `<ul class="w-sents">${items.slice(0, 4).join('')}</ul>` +
     (items.length > 4 ? `<details class="w-more"><summary>${items.length - 4} more examples</summary><ul class="w-sents">${items.slice(4).join('')}</ul></details>` : '');
 }
 
@@ -556,13 +598,7 @@ function wireEntry(e, r) {
     if (j) { ev.preventDefault(); const t = $(`[data-sec="${j.dataset.jump}"]`); t?.scrollIntoView({ behavior: reducedMotion() ? 'auto' : 'smooth', block: 'start' }); t?.querySelector('details')?.setAttribute('open', ''); return; }
     const b = ev.target.closest('[data-say]'); if (b) { ev.preventDefault(); speak(b.dataset.say); }
   };
-  $('#favBtn').onclick = () => {
-    const on = store.toggleInList('fav', e.id);
-    const b = $('#favBtn'); b.classList.toggle('on', on); b.innerHTML = on ? ICON.starFill : ICON.star;
-    b.setAttribute('aria-label', on ? 'Remove from Favourites' : 'Add to Favourites');
-    toast(on ? 'Added to Favourites' : 'Removed from Favourites');
-  };
-  $('#listBtn').onclick = () => listPicker(e.id);
+  wireSave(e.id);
   const nb = $('#noteBox');
   if (nb) {
     const grow = () => { nb.style.height = 'auto'; nb.style.height = nb.scrollHeight + 'px'; };
@@ -570,6 +606,89 @@ function wireEntry(e, r) {
     $('#noteOpen')?.addEventListener('click', () => { $('#noteOpen').remove(); nb.hidden = false; nb.focus(); grow(); });
     nb.addEventListener('input', () => { store.setNote(e.id, nb.value); grow(); });
   }
+}
+
+function saveButtons(key) {
+  const fav = store.inList('fav', key);
+  return `<button class="round ${fav ? 'on' : ''}" id="favBtn" aria-label="${fav ? 'Remove from Favourites' : 'Add to Favourites'}">${fav ? ICON.starFill : ICON.star}</button><button class="round" id="listBtn" aria-label="Save to a list">${ICON.bookmark}</button>`;
+}
+function wireSave(key) {
+  $('#favBtn').onclick = () => {
+    const on = store.toggleInList('fav', key);
+    const b = $('#favBtn'); b.classList.toggle('on', on); b.innerHTML = on ? ICON.starFill : ICON.star;
+    b.setAttribute('aria-label', on ? 'Remove from Favourites' : 'Add to Favourites');
+    toast(on ? 'Added to Favourites' : 'Removed from Favourites');
+  };
+  $('#listBtn').onclick = () => listPicker(key);
+}
+
+// ------------------------------------------------------------------ SENTENCE PAGE (like Shirabe's)
+async function viewSentence(sid) {
+  const my = routeSeq;
+  const S = await sents();
+  await db.formsReady().catch(() => {});
+  if (my !== routeSeq) return;
+  const x = S[sid], key = 'x' + sid;
+  if (!x) { setNav({ title: '', back: '#/' }); view().innerHTML = '<div class="empty">Sentence not found.</div>'; return; }
+  document.title = `${x[0]} – Oppslag`;
+  document.body.dataset.page = 'sentence';
+  setNav({ title: 'Example sentence', back: '#/', right: saveButtons(key) });
+  const { toks, groups } = analyse(x[0]);
+  // the sentence itself, every known word a link to its entry
+  const groupAt = new Map(); groups.forEach((g, gi) => { for (let k = 0; k < g.len; k++) groupAt.set(g.at + k, gi); });
+  let html = '', pos = 0;
+  toks.forEach((t, k) => {
+    html += h(x[0].slice(pos, t.index));
+    const g = groups[groupAt.get(k)];
+    html += g?.ids.length ? `<a class="sx-w" href="#/w/${g.ids[0]}">${h(t[0])}</a>` : h(t[0]);
+    pos = t.index + t[0].length;
+  });
+  html += h(x[0].slice(pos));
+  const seen = new Set(), words = [];
+  for (const g of groups) { if (!g.ids.length || seen.has(g.ids[0])) continue; seen.add(g.ids[0]); words.push(g.ids[0]); }
+  view().innerHTML = `<article class="sx">
+    <header class="sx-hero">
+      <h1 class="sx-no" lang="nb">${html}</h1>
+      <div class="sx-tools">${ttsAvailable() ? `<button class="pill-out" data-say="${h(x[0])}"><span>Listen</span>${ICON.arrow}</button>` : ''}<button class="pill-out" id="sxCopy"><span>Copy</span>${ICON.copy}</button></div>
+    </header>
+    <div class="sx-en">${x[1].map((t, k) => `<p class="${k ? 'sx-alt' : ''}">${h(t)}</p>`).join('')}</div>
+    <section class="sx-words"><h2 class="w-eyebrow">Words in this sentence</h2><div class="results">${rowsHTML(words)}</div></section>
+    <p class="w-fine sx-src">Sentence ${h(sid)} from <a href="https://tatoeba.org/en/sentences/show/${h(sid)}" target="_blank" rel="noopener">Tatoeba</a> (CC BY 2.0 FR). Tap a word above to open it.</p>
+  </article>`;
+  rememberResults(words);
+  wireSave(key);
+  $('#sxCopy').onclick = async () => { try { await navigator.clipboard.writeText(`${x[0]}\n${x[1][0]}`); toast('Sentence copied'); } catch { toast('Copying was blocked'); } };
+  view().onclick = (ev) => { const b = ev.target.closest('[data-say]'); if (b) { ev.preventDefault(); speak(b.dataset.say); } };
+}
+
+// Press-and-hold: sentences open on their own page; decks open their options
+function setupHold() {
+  let timer = null, el = null, sx = 0, sy = 0, swallow = 0;
+  const cancel = () => { clearTimeout(timer); timer = null; el?.classList.remove('holding'); el = null; };
+  document.addEventListener('pointerdown', (ev) => {
+    if (ev.button > 0) return;
+    const t = ev.target.closest('[data-sent],[data-deck]');
+    if (!t) return;
+    const ctl = ev.target.closest('button,a,input,select,textarea');
+    if (ctl && ctl !== t) return;
+    cancel();
+    el = t; sx = ev.clientX; sy = ev.clientY;
+    el.classList.add('holding');
+    timer = setTimeout(() => {
+      const target = el; cancel(); swallow = Date.now();
+      navigator.vibrate?.(8);
+      if (target.dataset.sent) {
+        try { localStorage.setItem('oppslag.heldSentence', '1'); } catch {}
+        location.hash = '#/x/' + target.dataset.sent;
+      } else deckSheet(target.dataset.deck);
+    }, 460);
+  });
+  document.addEventListener('pointermove', (ev) => { if (el && Math.hypot(ev.clientX - sx, ev.clientY - sy) > 8) cancel(); }, { passive: true });
+  for (const t of ['pointerup', 'pointercancel']) document.addEventListener(t, cancel);
+  addEventListener('scroll', cancel, { passive: true });
+  // the click that ends a hold shouldn't also tap whatever is underneath
+  document.addEventListener('click', (ev) => { if (Date.now() - swallow < 700) { ev.preventDefault(); ev.stopPropagation(); } }, true);
+  document.addEventListener('contextmenu', (ev) => { if (ev.target.closest('[data-sent],[data-deck]')) ev.preventDefault(); });
 }
 
 // Definitions in the older compact style, used on flashcard backs
@@ -641,7 +760,7 @@ function viewMyLists() {
   setNav({ title: 'Bookmarks', right: `<button class="round" id="newL" aria-label="New list">${ICON.plus}</button>` });
   const ls = store.lists();
   view().innerHTML = pageTitle('Bookmarks') + '<div class="group">' + ls.map(l => `<a class="lrow" href="#/list/${encodeURIComponent(l.id)}">${l.id === 'fav' ? ICON.starFill : ICON.folder}<div class="lt">${h(l.name)}</div><span class="cnt">${l.ids.length}</span><span class="chev">${ICON.chev}</span></a>`).join('') + '</div>' +
-    `<p class="page-intro">Tap ☆ on any word to add it to Favourites, or the bookmark button to file it into a list of your own.</p>`;
+    `<p class="page-intro">Tap ☆ on any word or example sentence to add it to Favourites, or the bookmark button to file it into a list of your own. Lists become flashcard decks.</p>`;
   $('#newL').onclick = async () => { const n = await askText('New list'); if (n) { store.newList(n); viewMyLists(); } };
 }
 
@@ -665,7 +784,9 @@ function wireToolbar(ids, name, source, rerender) {
     }
     if (act === 'anki') {
       const rows = [];
+      if (ids.some(isSent)) await sents();
       for (const id of ids) {
+        if (isSent(id)) { const x = SENTS[id.slice(1)]; if (x) rows.push(`${x[0].replace(/\t/g, ' ')}\t${x[1][0].replace(/\t/g, ' ')}\tsentence`); continue; }
         const e = await db.entry(id); const r = db.row(id); if (!e) continue;
         const front = (artOf(r) ? artOf(r) + ' ' : '') + e.l.join(' / ');
         const back = [r.en || r.no, e.ipa ? `/${e.ipa}/` + (e.tone ? ` (tonelag ${e.tone})` : '') : '', e.inf ? e.inf.f.filter(Boolean).slice(0, 5).join(', ').replace(/~/g, '') : ''].filter(Boolean).join('<br>');
@@ -674,7 +795,8 @@ function wireToolbar(ids, name, source, rerender) {
       download(`${name.replace(/[^\wæøå-]+/gi, '_')}.tsv`, '#separator:tab\n#html:true\n#columns:Front\tBack\tTags\n' + rows.join('\n'), 'text/tab-separated-values');
     }
     if (act === 'share') {
-      const text = `${name}\n` + ids.map(id => { const r = db.row(id); return r ? `${r.lemmas[0]} — ${(r.en || r.no).split('; ')[0]}` : ''; }).join('\n');
+      if (ids.some(isSent)) await sents();
+      const text = `${name}\n` + ids.map(id => { if (isSent(id)) { const x = SENTS[id.slice(1)]; return x ? `${x[0]} — ${x[1][0]}` : ''; } const r = db.row(id); return r ? `${r.lemmas[0]} — ${(r.en || r.no).split('; ')[0]}` : ''; }).join('\n');
       try { if (navigator.share) await navigator.share({ title: name, text }); else { await navigator.clipboard.writeText(text); toast('List copied'); } } catch {}
     }
   }));
@@ -692,23 +814,26 @@ function gridCell(id) {
 function renderWordList(container, ids, extraFn) {
   const grid = (store.settings().listView || 'rows') === 'grid';
   container.className = grid ? 'wgrid' : 'results';
-  progressive(container, ids, grid ? gridCell : (id) => resultRow(id, extraFn ? extraFn(id) : ''), 60, 120);
-  rememberResults(ids);
+  const one = (id) => isSent(id) ? (grid ? sentCell(id) : sentRow(id, extraFn ? extraFn(id) : ''))
+    : grid ? gridCell(id) : resultRow(id, extraFn ? extraFn(id) : '');
+  progressive(container, ids, one, 60, 120);
+  rememberResults(ids.filter(x => !isSent(x)));
 }
 
-function viewMyList(id) {
+async function viewMyList(id) {
   const l = store.list(id);
   if (!l) { location.hash = '#/lists'; return; }
+  if (l.ids.some(isSent)) { const my = routeSeq; await sents(); if (my !== routeSeq) return; }
   document.title = `${l.name} – Oppslag`;
   setNav({ title: l.name, back: '#/lists', right: l.id !== 'fav' ? `<button class="round" id="ren" aria-label="Rename">${ICON.edit}</button><button class="round" id="del" aria-label="Delete list">${ICON.trash}</button>` : '' });
   const render = () => {
-    view().innerHTML = pageTitle(l.name) + (l.ids.length ? `${listToolbar(true)}<div id="lr"></div>` : '<div class="empty">Tap ☆ on a word, or the bookmark button, to save it here.</div>');
+    view().innerHTML = pageTitle(l.name) + (l.ids.length ? `${listToolbar(true)}<div id="lr"></div>` : '<div class="empty">Tap ☆ on a word or a sentence, or the bookmark button, to save it here.</div>');
     if (!l.ids.length) return;
-    renderWordList($('#lr'), l.ids, (x) => `<button class="rm" data-rm="${x}" aria-label="Remove">${ICON.close}</button>`);
+    renderWordList($('#lr'), l.ids, (x) => `<button class="rm" data-rm="${h(x)}" aria-label="Remove">${ICON.close}</button>`);
     wireToolbar(l.ids, l.name, { type: 'user', id: l.id }, render);
   };
   render();
-  view().onclick = (ev) => { const b = ev.target.closest('[data-rm]'); if (b) { ev.preventDefault(); ev.stopPropagation(); store.toggleInList(id, +b.dataset.rm); render(); } };
+  view().onclick = (ev) => { const b = ev.target.closest('[data-rm]'); if (b) { ev.preventDefault(); ev.stopPropagation(); store.toggleInList(id, isSent(b.dataset.rm) ? b.dataset.rm : +b.dataset.rm); render(); } };
   $('#ren') && ($('#ren').onclick = async () => { const n = await askText('Rename list', l.name); if (n) { store.renameList(id, n); setNav({ title: n, back: '#/lists' }); viewMyList(id); } });
   $('#del') && ($('#del').onclick = () => { if (confirm(`Delete “${l.name}”?`)) { store.deleteList(id); location.hash = '#/lists'; } });
 }
@@ -762,44 +887,88 @@ async function viewBuiltin(id) {
 
 // ------------------------------------------------------------------ FLASHCARDS
 async function deckIds(d) {
-  if (d.source.type === 'user') return store.list(d.source.id)?.ids.filter(x => db.row(x)) || [];
+  if (d.source.type === 'user') return store.list(d.source.id)?.ids.filter(x => isSent(x) || db.row(x)) || [];
   const L = await db.lists(); return (L.find(x => x.id === d.source.id)?.ids || []).filter(x => db.row(x));
 }
 const dirsOf = (d) => d.dir === 'both' ? ['no', 'en'] : [d.dir];
+const FOLDER_COLORS = ['mustard', 'sage', 'plum', 'rose'];
+const DIR_LABEL = { no: 'Norwegian → English', en: 'English → Norwegian', both: 'Both directions' };
+const deckColor = (d) => d.color || FOLDER_COLORS[Math.max(0, store.decks().indexOf(d)) % 4];
+function deckIcon(d, L) {
+  if (d.source.type === 'user') return d.source.id === 'fav' ? ICON.starFill : ICON.bookmark;
+  const g = L.find(x => x.id === d.source.id)?.group;
+  return { Frequency: ICON.list, Grammar: ICON.book, Pronunciation: ICON.speaker, Topics: ICON.folder }[g] || ICON.cards;
+}
 
 async function viewDecks() {
   const my = routeSeq;
   document.title = 'Flashcards – Oppslag';
-  setNav({ title: 'Flashcards' });
+  setNav({ title: 'Flashcards', right: `<button class="round" id="newDeck" aria-label="New deck">${ICON.plus}</button>` });
   const ds = store.decks();
-  const rows = [];
+  const L = await db.lists();
+  let due = 0;
+  const folders = [];
   for (const d of ds) {
     const ids = await deckIds(d); const st = srs.stats(d.id, ids, dirsOf(d));
-    rows.push(`<div class="deck"><a href="#/review/${encodeURIComponent(d.id)}"><b>${h(d.name)}</b>
-      <div class="deckstats"><span class="due">${st.due} due</span><span class="new">${st.new} new</span><span class="muted">${st.mature} learned · ${ids.length} words</span></div></a>
-      <select data-dir="${d.id}" aria-label="Card direction"><option value="no" ${d.dir === 'no' ? 'selected' : ''}>NO → EN</option><option value="en" ${d.dir === 'en' ? 'selected' : ''}>EN → NO</option><option value="both" ${d.dir === 'both' ? 'selected' : ''}>Both</option></select>
-      <button class="icon" data-deldeck="${d.id}" aria-label="Delete deck">${ICON.trash}</button></div>`);
+    due += st.due;
+    const status = st.due ? `<b>${st.due} due</b>` : st.new ? `${st.new} new` : ids.length ? 'All caught up' : 'Empty';
+    folders.push(`<a class="folder c-${deckColor(d)}" href="#/review/${encodeURIComponent(d.id)}" data-deck="${h(d.id)}" aria-label="${h(d.name)}: ${ids.length} cards, ${st.due} due. Press and hold for options.">
+      <span class="folder-tab" aria-hidden="true"></span>${ids.length ? '<span class="folder-sheet" aria-hidden="true"></span><span class="folder-sheet s2" aria-hidden="true"></span>' : ''}
+      <span class="folder-front">
+        <span class="folder-top"><span class="folder-icon">${deckIcon(d, L)}</span><span class="folder-count">${ids.length} ${ids.length === 1 ? 'card' : 'cards'}<br>${status}</span></span>
+        <span class="folder-name">${h(d.name)}<span class="folder-dir">${DIR_LABEL[d.dir]}</span></span>
+      </span></a>`);
   }
-  const L = await db.lists();
   if (my !== routeSeq) return;
+  folders.push(`<button class="folder folder-new" id="newDeck2"><span class="folder-tab" aria-hidden="true"></span><span class="folder-front">${ICON.plus}<span>New deck</span></span></button>`);
+  view().innerHTML = `<h1 class="home-title">Flashcards.<span class="sub">${!ds.length ? 'Turn any list into a deck.' : due ? `${due} ${due === 1 ? 'card' : 'cards'} due today.` : 'Nothing due right now.'}</span></h1>
+    <div class="folders">${folders.join('')}</div>
+    <p class="page-intro">${ds.length ? 'Press and hold a deck to change its name, colour or direction. ' : ''}Cards you know well come back less often. ${store.settings().newPerDay} new cards a day (change in Settings).</p>`;
+  $('#newDeck').onclick = $('#newDeck2').onclick = () => newDeckSheet(L);
+}
+
+function newDeckSheet(L) {
   const opts = [...store.lists().map(l => `<option value="user:${h(l.id)}">${h(l.name)} (${l.ids.length})</option>`),
     ...L.filter(l => l.ids.length && l.group !== 'Topics').map(l => `<option value="builtin:${h(l.id)}">${h(l.group)} · ${h(l.name)}</option>`),
     ...L.filter(l => l.ids.length && l.group === 'Topics').map(l => `<option value="builtin:${h(l.id)}">Topic · ${h(l.name)}</option>`)].join('');
-  view().innerHTML = `${pageTitle('Flashcards')}${bandHTML('Your decks')}
-    ${rows.length ? `<div class="group">${rows.join('')}</div>` : '<p class="page-intro">No decks yet. Make one below, or tap Study on any word list.</p>'}
-    ${bandHTML('New deck')}
-    <form class="newdeck" id="nd">
-      <select id="ndSrc">${opts}</select>
-      <select id="ndDir"><option value="no">Norwegian → English</option><option value="en">English → Norwegian</option><option value="both">Both directions</option></select>
-      <button class="btn primary">Create deck</button></form>
-    <p class="page-intro">Spaced repetition: cards you know well come back less often. ${store.settings().newPerDay} new cards a day (change in Settings).</p>`;
-  $$('[data-dir]').forEach(s => s.addEventListener('change', () => { store.updateDeck(s.dataset.dir, { dir: s.value }); viewDecks(); }));
-  $$('[data-deldeck]').forEach(b => b.addEventListener('click', () => { if (confirm('Delete this deck and its review progress?')) { store.deleteDeck(b.dataset.deldeck); viewDecks(); } }));
-  $('#nd').addEventListener('submit', (ev) => {
-    ev.preventDefault();
-    const [type, ...rest] = $('#ndSrc').value.split(':'); const id = rest.join(':');
-    const name = type === 'user' ? store.list(id).name : L.find(x => x.id === id).name;
-    store.newDeck(name, { type, id }, $('#ndDir').value); viewDecks();
+  const used = new Set(store.decks().map(deckColor));
+  modal(`<h3>New deck</h3><form id="nd" class="sheet-form">
+      <label class="sheet-field"><span>Cards from</span><select id="ndSrc">${opts}</select></label>
+      <label class="sheet-field"><span>Direction</span><select id="ndDir">${Object.entries(DIR_LABEL).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></label>
+      ${swatches(FOLDER_COLORS.find(c => !used.has(c)) || FOLDER_COLORS[store.decks().length % 4])}
+      <div class="modal-actions"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary">Create deck</button></div></form>`, (w, close) => {
+    $('#nd', w).addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      const [type, ...rest] = $('#ndSrc', w).value.split(':'); const id = rest.join(':');
+      const name = type === 'user' ? store.list(id).name : L.find(x => x.id === id).name;
+      const d = store.newDeck(name, { type, id }, $('#ndDir', w).value);
+      store.updateDeck(d.id, { color: $('input[name="fc"]:checked', w).value });
+      close(); viewDecks();
+    });
+  });
+}
+function swatches(cur) {
+  const names = { mustard: 'Mustard', sage: 'Sage', plum: 'Plum', rose: 'Rose' };
+  return `<fieldset class="sheet-field swatches"><legend>Colour</legend><div>${FOLDER_COLORS.map(c => `<label class="sw c-${c}"><input type="radio" name="fc" value="${c}" ${c === cur ? 'checked' : ''}><span>${names[c]}</span></label>`).join('')}</div></fieldset>`;
+}
+async function deckSheet(deckId) {
+  const d = store.deck(deckId); if (!d) return;
+  const ids = await deckIds(d); const st = srs.stats(d.id, ids, dirsOf(d));
+  modal(`<h3>${h(d.name)}</h3><p class="sheet-stats">${ids.length} cards · ${st.mature} learned · ${st.learning} learning · ${st.new} new</p>
+    <form id="ds" class="sheet-form">
+      <label class="sheet-field"><span>Name</span><input id="dsName" value="${h(d.name)}"></label>
+      <label class="sheet-field"><span>Direction</span><select id="dsDir">${Object.entries(DIR_LABEL).map(([k, v]) => `<option value="${k}" ${d.dir === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+      ${swatches(deckColor(d))}
+      <div class="modal-actions"><button type="button" class="btn danger" id="dsDel">${ICON.trash} Delete</button><span style="flex:1"></span><button class="btn primary">Done</button></div></form>`, (w, close) => {
+    $('#ds', w).addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      store.updateDeck(d.id, { name: $('#dsName', w).value.trim() || d.name, dir: $('#dsDir', w).value, color: $('input[name="fc"]:checked', w).value });
+      close(); if (location.hash === '#/cards') viewDecks();
+    });
+    $('#dsDel', w).addEventListener('click', () => {
+      if (!confirm(`Delete “${d.name}” and its review progress? The list itself stays in Bookmarks.`)) return;
+      store.deleteDeck(d.id); close(); if (location.hash === '#/cards') viewDecks();
+    });
   });
 }
 
@@ -815,6 +984,55 @@ async function viewReview(deckId) {
   const total = items.length;
   let done = 0;
   const again = [];
+  const wordCard = async (id, dir) => {
+    const e = await db.entry(id); const r = db.row(id);
+    if (!e || !r) return null;
+    const art = artOf(r) ? artOf(r) + ' ' : '';
+    const noWord = `${art}${e.l.join(' / ')}`;
+    const enText = r.en ? r.en.split('; ').slice(0, 3).join('; ') : r.no;
+    const front = dir === 'no' ? `<div class="cf-word">${h(noWord)}</div><div class="muted">${h(POS[r.pos] || '')}</div>`
+      : `<div class="cf-en">${h(enText)}</div><div class="muted">${h(POS[r.pos] || '')}${r.pos === 'n' && r.g ? ' · ' + articleFor(r.g) : ''}</div>`;
+    const backParts = [];
+    if (dir === 'en') backParts.push(`<div class="cf-word">${h(noWord)}</div>`);
+    for (const f of s.cardBack) {
+      if (f === 'en' && dir === 'no') backParts.push(`<div class="cb-en">${e.en ? e.en.slice(0, 4).map(x => h(x.g)).join('<br>') : h(r.no)}</div>`);
+      if (f === 'pron' && e.ipa) backParts.push(`<div class="cb-pron"><span class="ipa">/${h(e.ipa)}/</span>${e.tone ? `<span class="chip-s">Tone ${e.tone}</span>` : ''}</div>`);
+      if (f === 'inf' && e.inf) backParts.push(`<div class="cb-inf">${e.inf.f.slice(0, e.inf.k === 'v' ? 5 : 4).filter(Boolean).map(c => h(c.split('/').filter(w => w[0] !== '~').join('/'))).join(' · ')}</div>`);
+      if (f === 'no' && e.d) backParts.push(`<div class="cb-no">${renderDefs(e.d.slice(0, 2))}</div>`);
+      if (f === 'ex' && e.ts?.length) { const S = await sents(); const x = S[e.ts[0]]; if (x) backParts.push(`<div class="cb-ex" data-sent="${e.ts[0]}"><div>${h(x[0])}</div><div class="muted">${h(x[1][0])}</div></div>`); }
+      if (f === 'cmp' && e.cmp) backParts.push(`<div class="cb-cmp">${h(e.cmp[0])} + ${e.cmp[1] ? h(e.cmp[1]) + ' + ' : ''}${h(e.cmp[2])}</div>`);
+      if (f === 'note' && store.note(id)) backParts.push(`<div class="cb-note">${h(store.note(id))}</div>`);
+    }
+    return {
+      field: fieldOf(r.pos), front, back: backParts.join(''), say: e.l[0], href: `#/w/${id}`, open: 'Open entry',
+      placeholder: dir === 'no' ? 'Type the meaning…' : 'Type the Norwegian word…',
+      check: (v) => dir === 'no'
+        ? (r.en || '').toLowerCase().split(/[;,]\s*/).some(t => t.replace(/^(to|a|an|the) /, '').trim() === v.replace(/^(to|a|an|the) /, ''))
+        : e.l.map(x => x.toLowerCase()).includes(v),
+    };
+  };
+  const sentenceCard = async (sid, dir) => {
+    const S = await sents(); const x = S[sid];
+    if (!x) return null;
+    await db.formsReady().catch(() => {});
+    const { groups } = analyse(x[0]);
+    const seen = new Set(), words = [];
+    for (const g of groups) {
+      const r = g.ids.length && db.row(g.ids[0]);
+      if (!r || seen.has(r.id)) continue; seen.add(r.id);
+      words.push(`<li><b lang="nb">${h(r.lemmas[0])}</b> <span>${h((r.en || r.no).split('; ')[0])}</span></li>`);
+    }
+    const front = dir === 'no' ? `<div class="cf-sent" lang="nb">${h(x[0])}</div><div class="muted">sentence</div>`
+      : `<div class="cf-sent">${h(x[1][0])}</div><div class="muted">say it in Norwegian</div>`;
+    const back = (dir === 'en' ? `<div class="cf-sent" lang="nb">${h(x[0])}</div>` : `<div class="cb-en">${x[1].slice(0, 2).map(h).join('<br>')}</div>`) +
+      (words.length ? `<ul class="cb-words">${words.join('')}</ul>` : '');
+    const norm = (t) => t.toLowerCase().replace(/[^\p{L}\p{N} ]+/gu, '').replace(/\s+/g, ' ').trim();
+    return {
+      field: 'f-page', sid, front, back, say: x[0], href: `#/x/${sid}`, open: 'Open sentence',
+      placeholder: dir === 'no' ? 'Type the meaning…' : 'Type the Norwegian sentence…',
+      check: (v) => dir === 'no' ? x[1].some(t => norm(t) === norm(v)) : norm(x[0]) === norm(v),
+    };
+  };
   const next = async () => {
     if (my !== routeSeq) return;
     if (!items.length && again.length) {
@@ -830,52 +1048,34 @@ async function viewReview(deckId) {
     }
     const key = items.shift();
     const [, idStr, dir] = key.split(':');
-    const id = +idStr;
-    const e = await db.entry(id); const r = db.row(id);
+    const card = isSent(idStr) ? await sentenceCard(idStr.slice(1), dir) : await wordCard(+idStr, dir);
     if (my !== routeSeq) return;
-    if (!e || !r) return next();
-    const art = artOf(r) ? artOf(r) + ' ' : '';
-    const noWord = `${art}${e.l.join(' / ')}`;
-    const enText = r.en ? r.en.split('; ').slice(0, 3).join('; ') : r.no;
-    const front = dir === 'no' ? `<div class="cf-word">${h(noWord)}</div><div class="muted">${h(POS[r.pos] || '')}</div>`
-      : `<div class="cf-en">${h(enText)}</div><div class="muted">${h(POS[r.pos] || '')}${r.pos === 'n' && r.g ? ' · ' + articleFor(r.g) : ''}</div>`;
-    const backParts = [];
-    if (dir === 'en') backParts.push(`<div class="cf-word">${h(noWord)}</div>`);
-    for (const f of s.cardBack) {
-      if (f === 'en' && dir === 'no') backParts.push(`<div class="cb-en">${e.en ? e.en.slice(0, 4).map(x => h(x.g)).join('<br>') : h(r.no)}</div>`);
-      if (f === 'pron' && e.ipa) backParts.push(`<div class="cb-pron"><span class="ipa">/${h(e.ipa)}/</span>${e.tone ? `<span class="chip-s">Tone ${e.tone}</span>` : ''}</div>`);
-      if (f === 'inf' && e.inf) backParts.push(`<div class="cb-inf">${e.inf.f.slice(0, e.inf.k === 'v' ? 5 : 4).filter(Boolean).map(c => h(c.split('/').filter(w => w[0] !== '~').join('/'))).join(' · ')}</div>`);
-      if (f === 'no' && e.d) backParts.push(`<div class="cb-no">${renderDefs(e.d.slice(0, 2))}</div>`);
-      if (f === 'ex' && e.ts?.length) { const S = await db.sentences(); const x = S[e.ts[0]]; if (x) backParts.push(`<div class="cb-ex"><div>${h(x[0])}</div><div class="muted">${h(x[1][0])}</div></div>`); }
-      if (f === 'cmp' && e.cmp) backParts.push(`<div class="cb-cmp">${h(e.cmp[0])} + ${e.cmp[1] ? h(e.cmp[1]) + ' + ' : ''}${h(e.cmp[2])}</div>`);
-      if (f === 'note' && store.note(id)) backParts.push(`<div class="cb-note">${h(store.note(id))}</div>`);
-    }
+    if (!card) return next();
     const remaining = items.length + 1 + again.length;
     setNav({ title: d.name, back: '#/cards', right: `<span class="muted small" style="padding-right:6px">${remaining} left</span>` });
     view().innerHTML = `<div class="study-progress"><div style="width:${total ? Math.min(100, done / Math.max(total, done + remaining) * 100) : 0}%"></div></div>
-      <div class="flash ${fieldOf(r.pos)}" id="flash">
-        <div class="front">${front}</div>
-        ${s.typeAnswer ? `<input id="typed" class="typed" placeholder="${dir === 'no' ? 'Type the meaning…' : 'Type the Norwegian word…'}" autocapitalize="off" autocomplete="off" spellcheck="false">` : ''}
-        <div class="cardback" hidden>${backParts.join('')}<div id="typedResult"></div>
-          <div class="cardlinks">${ttsAvailable() ? `<button class="btn small" data-say="${h(e.l[0])}">${ICON.speaker} Listen</button>` : ''}<a class="btn small" href="#/w/${id}">Open entry</a></div></div>
+      <div class="flash ${card.field}" id="flash" ${card.sid ? `data-sent="${card.sid}"` : ''}>
+        <div class="front">${card.front}</div>
+        ${s.typeAnswer ? `<input id="typed" class="typed" placeholder="${card.placeholder}" autocapitalize="off" autocomplete="off" spellcheck="false">` : ''}
+        <div class="cardback" hidden>${card.back}<div id="typedResult"></div>
+          <div class="cardlinks">${ttsAvailable() ? `<button class="btn small" data-say="${h(card.say)}">${ICON.speaker} Listen</button>` : ''}<a class="btn small" href="${card.href}">${card.open}</a></div></div>
       </div>
       <div class="answer" id="ans"><button class="btn primary" style="width:100%" id="show">Show answer</button></div>`;
-    if (dir === 'no' && ttsAvailable() && s.autoSpeak) speak(e.l[0]);
+    if (dir === 'no' && ttsAvailable() && s.autoSpeak) speak(card.say);
     const show = () => {
       $('.cardback').hidden = false;
       const typed = $('#typed');
       if (typed) {
         const v = typed.value.trim().toLowerCase(); typed.disabled = true;
         if (v) {
-          const target = dir === 'no' ? (r.en || '').toLowerCase() : e.l.map(x => x.toLowerCase()).join('|');
-          const ok = dir === 'no' ? target.split(/[;,]\s*/).some(t => t.replace(/^(to|a|an|the) /, '').trim() === v.replace(/^(to|a|an|the) /, '')) : target.split('|').includes(v);
+          const ok = card.check(v);
           $('#typedResult').innerHTML = `<div class="typed-res ${ok ? 'ok' : 'bad'}">${ok ? '✓ Correct' : '✗ You typed: ' + h(typed.value)}</div>`;
         }
       }
       $('#ans').innerHTML = `<div class="grades">${['Again', 'Hard', 'Good', 'Easy'].map((g, k) => `<button class="grade g${k}" data-g="${k}"><b>${g}</b><span>${srs.preview(key, k)}</span><kbd>${k + 1}</kbd></button>`).join('')}</div>`;
       $$('.grade').forEach(b => b.addEventListener('click', () => answer(+b.dataset.g)));
       $$('[data-say]', view()).forEach(b => b.addEventListener('click', () => speak(b.dataset.say)));
-      if (dir === 'en' && ttsAvailable() && s.autoSpeak) speak(e.l[0]);
+      if (dir === 'en' && ttsAvailable() && s.autoSpeak) speak(card.say);
     };
     const answer = (g) => {
       const c = srs.grade(key, g); done++;
@@ -909,21 +1109,10 @@ function viewReader() {
     <div class="pad"><textarea id="rt" rows="4" placeholder="F.eks.: Jeg har bodd i Norge i tre år, og jeg snakker fortsatt ikke flytende norsk.">${h(text)}</textarea></div>
     <div class="row"><button class="btn primary" id="go">Look up words</button><button class="btn" id="paste">${ICON.paste} Paste</button>${ttsAvailable() ? `<button class="btn" id="say">${ICON.speaker} Read aloud</button>` : ''}</div>
     <div id="rout"></div>`;
-  const run = () => {
+  const run = async () => {
+    await db.formsReady().catch(() => {});
     const t = $('#rt').value; sessionStorage.setItem('reader', t);
-    const toks = t.match(/[A-Za-zÆØÅæøåÉéÈèÊêÓóÒòÔôÜüÄäÖö]+(?:[-'][A-Za-zÆØÅæøå]+)*/g) || [];
-    const out = [];
-    for (let k = 0; k < toks.length; k++) {
-      let matched = null;
-      for (const len of [3, 2]) {
-        if (k + len > toks.length) continue;
-        const phrase = toks.slice(k, k + len).join(' ');
-        const ids = db.byLemma(phrase);
-        if (ids.length) { matched = { tok: phrase, ids, len }; break; }
-      }
-      if (!matched) matched = { tok: toks[k], ids: db.lookupToken(toks[k]), len: 1 };
-      out.push(matched); k += matched.len - 1;
-    }
+    const out = analyse(t).groups;
     const seen = new Set();
     const all = [];
     $('#rout').innerHTML = `<div class="reader-line">${out.map((o, i) => `<button class="rtok ${o.ids.length ? '' : 'unk'} ${o.len > 1 ? 'mwe' : ''}" data-i="${i}">${h(o.tok)}</button>`).join(' ')}</div>
@@ -959,9 +1148,9 @@ async function viewExamples(q) {
   if (!q.trim()) { out.innerHTML = `<p class="page-intro">${Object.keys(S).length.toLocaleString()} Norwegian sentences with English translations, from Tatoeba.</p>`; return; }
   const ql = q.toLowerCase();
   const re = new RegExp('(^|[^\\p{L}])(' + ql.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'iu');
-  const hits = Object.values(S).filter(([no, en]) => re.test(no) || en.some(x => re.test(x))).sort((a, b) => a[0].length - b[0].length).slice(0, 200);
+  const hits = Object.entries(S).filter(([, [no, en]]) => re.test(no) || en.some(x => re.test(x))).sort((a, b) => a[1][0].length - b[1][0].length).slice(0, 200);
   const mk = (t) => h(t).replace(new RegExp('(' + h(ql).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'ig'), '<mark>$1</mark>');
-  out.innerHTML = hits.length ? `<div class="pad"><ul class="sents">${hits.map(([no, en]) => `<li><div class="sno"><span>${mk(no)}</span>${ttsAvailable() ? `<button class="speak tiny" data-say="${h(no)}" aria-label="Listen">${ICON.speaker}</button>` : ''}</div><div class="sen">${mk(en[0])}</div></li>`).join('')}</ul></div><div class="foot">${hits.length}${hits.length === 200 ? '+' : ''} sentences</div>` : '<div class="empty">No sentences found.</div>';
+  out.innerHTML = hits.length ? `${holdHint()}<div class="pad"><ul class="sents">${hits.map(([sid, [no, en]]) => `<li data-sent="${sid}"><div class="sno"><span>${mk(no)}</span>${ttsAvailable() ? `<button class="speak tiny" data-say="${h(no)}" aria-label="Listen">${ICON.speaker}</button>` : ''}</div><div class="sen">${mk(en[0])}</div></li>`).join('')}</ul></div><div class="foot">${hits.length}${hits.length === 200 ? '+' : ''} sentences</div>` : '<div class="empty">No sentences found.</div>';
   view().onclick = (ev) => { const b = ev.target.closest('[data-say]'); if (b) speak(b.dataset.say); };
 }
 
@@ -1095,6 +1284,7 @@ async function boot() {
   $('#navLeft').addEventListener('click', () => backTarget ? goBack() : openDrawer());
   $('#scrim').addEventListener('click', closeDrawer);
   setupSearch();
+  setupHold();
   // edge swipe: back on detail pages, menu on top-level pages
   let sx = null, sy = null;
   document.addEventListener('touchstart', (e) => { const t = e.touches[0]; sx = t.clientX < 22 ? t.clientX : null; sy = t.clientY; }, { passive: true });
@@ -1116,7 +1306,7 @@ async function boot() {
   try {
     await db.load(() => {});   // the splash keeps its credit line while loading
   } catch (e) {
-    $('#splash-msg').textContent = 'Could not load the dictionary: ' + e.message; return;
+    const m = $('#splash-msg'); m.hidden = false; m.textContent = 'Could not load the dictionary: ' + e.message; return;
   }
   // dictionary rebuilt since last visit? drop the stale cached data and reload once
   const meta = db.meta();
@@ -1125,15 +1315,27 @@ async function boot() {
   if (oldVer && oldVer !== ver && 'caches' in window) { await caches.delete('oppslag-data'); location.reload(); return; }
   window.addEventListener('hashchange', onHashChange);
   await route();
+  // A cold start shows the launch logo for at least a moment, then dissolves it; resumes never see it
+  const hold = 300 - performance.now();
+  if (hold > 0 && !document.documentElement.classList.contains('no-splash')) await new Promise(r => setTimeout(r, hold));
   document.body.classList.add('ready');
+  setTimeout(() => $('#splash')?.remove(), 500);
+  // search's inflected-forms table loads once the first screen is settled
+  setTimeout(() => db.formsReady().catch(() => {}), 600);
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-    // A new release installs a new service worker; when it takes over, reload once so the new
-    // version shows straight away (only if an older version was already running).
+    // A new release installs a new service worker. On a fresh launch the page already came from the
+    // network (the shell is network-first), so nothing to do. If the app was resumed and is in use,
+    // switch to the new version the next time it goes to the background, without the launch logo.
     const hadController = !!navigator.serviceWorker.controller;
-    let reloading = false;
+    let pending = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (!hadController || reloading) return;
-      reloading = true; location.reload();
+      if (!hadController || pending || performance.now() < 8000) return;
+      pending = true;
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState !== 'hidden') return;
+        try { sessionStorage.setItem('oppslag.quiet', '1'); } catch {}
+        location.reload();
+      });
     });
     navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then((reg) => {
       setTimeout(() => prefetchAll(false), 4000);

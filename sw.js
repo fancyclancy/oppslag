@@ -1,7 +1,7 @@
 // Offline support. App shell: network-first and always revalidated with the server, so a new
 // release shows up on the next launch (GitHub Pages lets browsers reuse files for 10 minutes,
 // which otherwise hides updates). Data: cache-first.
-const SHELL = 'oppslag-shell-v7';
+const SHELL = 'oppslag-shell-v8';
 const DATA = 'oppslag-data';
 const SHELL_FILES = ['./', 'index.html', 'styles.css', 'oppslag-v3.webmanifest', 'js/app.js', 'js/db.js', 'js/store.js', 'js/srs.js',
   'js/speech.js', 'js/render.js', 'js/icons.js', 'icons/book-192.png', 'icons/book-512.png', 'icons/book-180.png', 'icons/logo.png',
@@ -27,7 +27,7 @@ self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET' || url.origin !== location.origin) return;
   if (url.pathname.includes('/data/')) {
     // meta.json is small and tells us when the dictionary was rebuilt
-    if (url.pathname.endsWith('/meta.json')) { e.respondWith(networkFirst(e.request, DATA)); return; }
+    if (url.pathname.endsWith('/meta.json')) { e.respondWith(networkFirst(e.request, DATA, true)); return; }
     e.respondWith(cacheFirst(e.request, DATA));
     return;
   }
