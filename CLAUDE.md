@@ -75,6 +75,14 @@ Verified with axe-core 4.10 (WCAG 2 A/AA): zero violations on home, search, word
 - **Example sentences** are first-class like in Shirabe: `#/x/<Tatoeba id>` is a sentence page (large serif sentence with every word linked, Listen and Copy pills, translations, "Words in this sentence" rows, star and bookmark). Saved in lists as the string `"x<id>"` next to numeric word ids, so they flow into bookmarks, decks, Anki export and share. Anywhere a sentence appears (`[data-sent]`: word-page examples, example search, flashcard backs, sentence cards) press and hold for 460ms to open it; a tint fills in from the left while holding (`setupHold()` in `app.js`). A one-line hint shows until the first hold.
 - **Icons**: Phosphor (regular), MIT, inlined in `app/js/icons.js`.
 
+## Navigation and motion (2026-11-22)
+
+- Page changes use View Transitions: deeper = the new page slides in over the old (iOS push, 0.42s on phones), back = the page slides off (faster, 0.82×), same level = crossfade 0.18s. The top bar, drawer and scrim are their own transition layers.
+- **Nothing loads inside a transition.** A transition freezes the screen while its callback runs, so: `warmUp()` loads lists, sentences and the forms table one at a time after launch (never during a transition), and `preload(hash)` makes sure a page's data is in memory before the transition starts (it resolves at once when warm; on a cold visit the page dims after 120ms to show the tap registered). Never race or time-cut the transition callback: that captures half-built pages.
+- Back is decided by intent, not by URL: `goBack()` sets `expectBack`; a link to the page you came from is a forward step.
+- The Home Screen app has no system swipe-back, so the app's left-edge swipe acts as soon as the drag is sideways. In a Safari tab the browser owns that edge; a popstate during such a drag (or with `hasUAVisualTransition`) skips the app's animation.
+- The top bar is solid `--paper` (no backdrop blur): the blur cost frames on scroll and had to be swapped during transitions, which flicked.
+
 ## Data rule: spellings
 
 An entry with several spellings (bo/bu, malm/malme) is matched to Wiktionary once per spelling. The build keeps one match per entry, preferring: a real page over a stub ("form removed in the reform", "alternative form of"), then a spelling no other dictionary word shares, then the main spelling. Before this rule the last spelling won, so *bo* "to live" showed the archaic *bu* "to prepare".
