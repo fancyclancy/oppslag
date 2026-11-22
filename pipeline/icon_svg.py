@@ -50,7 +50,9 @@ def oe(cx, cy, rx, ry, side, top, slash_w, gap, ext, angle_deg, mode, slash_fill
 
 def icon(mode='inlay', rx=212, ry=240, side=100, top=33, slash_w=50, gap=14, ext=32, angle=56, mask=True, label='', slash_fill='url(#blue)', joins='open'):
     COVER_B = 792                     # bottom of the cover face
-    PB_L, PB_R, PB_B = 40, 996, 972   # page block
+    M = 54                            # even margin of back cover round the pages (bottom and right)
+    PB_L, PB_R, PB_B = 40, S - M, S - M   # page block
+    RC = 230 - M                      # fore-edge corner, parallel to the icon's own corner
     RP = 190                          # page block's bottom-left corner, concentric with the icon's corner
     CL = 48                           # radius of the cover's bottom-left corner: its lip tucks over the pages
     # page lines run along the bottom, curve up into the spine on the left (concentric with the
@@ -60,8 +62,9 @@ def icon(mode='inlay', rx=212, ry=240, side=100, top=33, slash_w=50, gap=14, ext
     for k in range(n):
         t = k / (n - 1)
         y = COVER_B + 22 + t * (PB_B - COVER_B - 30)
-        r = 70 + t * 50
-        xr = PB_R - 10 - t * 26
+        d = PB_B - y                  # every page line is concentric with the fore-edge corner
+        r = max(24, RC - d)
+        xr = PB_R - d
         rl = max(26, RP - (PB_B - y) - 6)
         xl = PB_L + RP - rl
         shade = 0.20 + 0.25 * ((k * 7) % 5) / 4      # irregular, like real page edges
@@ -69,7 +72,7 @@ def icon(mode='inlay', rx=212, ry=240, side=100, top=33, slash_w=50, gap=14, ext
                      f'fill="none" stroke="#9C8F78" stroke-opacity="{shade:.2f}" stroke-width="{1.6 if k % 3 else 2.4}"/>')
     lines = '\n    '.join(lines)
     mark = oe(S / 2, COVER_B / 2 + 6, rx, ry, side, top, slash_w, gap, ext, angle, mode, slash_fill, joins)
-    PAGES = f"M{PB_L},{COVER_B - 80} H{PB_R} V{PB_B - 120} A120,120 0 0,1 {PB_R - 120},{PB_B} H{PB_L + RP} A{RP},{RP} 0 0,1 {PB_L},{PB_B - RP} Z"
+    PAGES = f"M{PB_L},{COVER_B - 80} H{PB_R} V{PB_B - RC} A{RC},{RC} 0 0,1 {PB_R - RC},{PB_B} H{PB_L + RP} A{RP},{RP} 0 0,1 {PB_L},{PB_B - RP} Z"
     # the cover's bottom edge rolls down round the pages' top-left corner and carries on as the spine
     # (Apple's Dictionary icon): a convex lip, not a corner
     LIP_R, LIP_X = 70, 30             # lip radius; x of the spine's inner edge
