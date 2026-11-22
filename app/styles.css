@@ -83,15 +83,14 @@ kbd { font: 500 12px/1 var(--font-ui); background: var(--card); border: 1px soli
 :focus-visible { outline: 2px solid var(--link); outline-offset: 2px; border-radius: 6px; }
 ::selection { background: var(--mustard); color: var(--on-field); }
 
-/* ---------- splash: a plum field with the name set huge, like the reference's "Dictionary" */
-#splash { position: fixed; inset: 0; z-index: 100; background: var(--plum); overflow: hidden; display: flex; flex-direction: column; justify-content: center; transition: opacity .35s ease; }
-body.ready #splash { opacity: 0; pointer-events: none; }
-.splash-word { font-family: var(--font-read); font-weight: 400; color: var(--coral); font-size: clamp(120px, 34vw, 280px); line-height: .86; letter-spacing: -.03em; margin: 0; white-space: nowrap; }
-.splash-word span { display: block; }
-.splash-word span:first-child { padding-left: 6vw; }
-.splash-word span:last-child { margin-left: -9vw; }
-.splash-foot { position: absolute; left: var(--space-6); right: var(--space-6); bottom: calc(var(--space-6) + env(safe-area-inset-bottom)); border-top: 1px solid var(--coral); padding-top: var(--space-3); color: var(--coral); font-size: 13px; text-align: center; }
-#splash-msg { color: var(--on-plum); opacity: .8; }
+/* ---------- launch screen: the app icon centred on the page colour, like a native app's launch screen.
+   Shown on a cold start only; it dissolves (with a slight lift) once the first screen is ready. */
+#splash { position: fixed; inset: 0; z-index: 100; background: var(--paper); display: grid; place-items: center; }
+#splash img { width: 112px; height: 112px; display: block; filter: drop-shadow(0 10px 22px rgba(30, 36, 33, .18)); }
+#splash-msg { position: absolute; left: var(--space-6); right: var(--space-6); bottom: calc(var(--space-7) + env(safe-area-inset-bottom)); margin: 0; text-align: center; color: var(--ink-2); font-size: 15px; line-height: 22px; }
+body.ready #splash { opacity: 0; pointer-events: none; transition: opacity .26s cubic-bezier(.3, 0, .2, 1); }
+body.ready #splash img { transform: scale(1.06); transition: transform .26s cubic-bezier(.3, 0, .2, 1); }
+.no-splash #splash { display: none; }
 
 /* ======================================================================
    Top bar, search, drawer
@@ -318,16 +317,6 @@ mark { background: var(--mustard-t); color: inherit; border-radius: 3px; padding
 /* ======================================================================
    Flashcards
    ====================================================================== */
-.deck { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-3) var(--space-4); position: relative; }
-.deck + .deck::before { content: ""; position: absolute; top: 0; left: var(--space-4); right: 0; border-top: 1px solid var(--rule); }
-.deck > a { flex: 1; color: var(--ink); min-width: 0; }
-.deck > a b { font-size: 16px; font-weight: 600; }
-.deck select { padding: 6px var(--space-2); font-size: 14px; border-radius: var(--radius-s); }
-.deck .icon { border: 0; background: none; color: var(--ink-3); padding: var(--space-2); cursor: pointer; border-radius: 50%; }
-.deckstats { display: flex; gap: var(--space-3); font-size: 13px; line-height: 18px; flex-wrap: wrap; margin-top: 2px; color: var(--ink-3); }
-.deckstats .due { color: var(--ink); font-weight: 600; }
-.deckstats .new { color: var(--ink-2); font-weight: 600; }
-.newdeck { display: flex; flex-direction: column; gap: var(--space-3); padding: 0 var(--space-4); margin-bottom: var(--space-4); }
 .study-progress { height: 4px; background: var(--rule); margin: var(--space-2) var(--space-4) 0; border-radius: 4px; overflow: hidden; }
 .study-progress div { height: 100%; background: var(--ink); transition: width .3s ease; }
 .flash { border-radius: var(--radius-xl); margin: var(--space-4); padding: var(--space-6) var(--space-5); min-height: 340px; text-align: left; display: flex; flex-direction: column; gap: var(--space-3); justify-content: flex-end; cursor: pointer; animation: cardin .3s cubic-bezier(.2, .8, .2, 1); background: var(--mustard); color: var(--on-field); }
@@ -547,7 +536,6 @@ body[data-page="word"] .navrow { max-width: var(--page-max); }
   .tiles4 { grid-template-columns: repeat(4, 1fr); }
   .wgrid { padding: 0 var(--space-6); }
   .filter, .btn.wide { width: calc(100% - var(--space-8)); margin-left: var(--space-6); margin-right: var(--space-6); }
-  .newdeck { padding: 0 var(--space-6); }
   .study-progress { margin-left: var(--space-6); margin-right: var(--space-6); }
   .wotd-word { font-size: 112px; }
   .w-hero { margin: 0 var(--space-6); padding: var(--space-6) var(--space-7) var(--space-6); min-height: 420px; }
@@ -590,3 +578,107 @@ html[data-nav="fade"]::view-transition-new(root) { animation-name: vt-fade-in; a
 
 /* links inside running text are underlined, so they never rely on colour alone (WCAG 1.4.1) */
 .w-fine a, .w-small a, .page-intro a, .about-p a, .sources a, .tips a, .w-aside-note a { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+
+/* ======================================================================
+   Flashcard decks as folders (owner's reference: collection folders with a tab, an icon tile,
+   counts top right, the name bottom left). Built in this app's world: hairline front panel on a
+   coloured back panel, two paper sheets peeking out. Pressing a folder tips its front open.
+   ====================================================================== */
+.folders { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-6) var(--space-3); margin: 0 var(--space-4) var(--space-6); padding-top: var(--space-2); }
+@media (min-width: 720px) { .folders { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-7) var(--space-5); } }
+@media (min-width: 1100px) { .folders { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.folder { --f: var(--mustard); --f-ink: var(--on-field); position: relative; display: flex; flex-direction: column; padding: 20px 0 5px; color: var(--ink); text-align: left;
+  border: 0; background: none; font: inherit; cursor: pointer; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+.folder.c-sage { --f: var(--sage); } .folder.c-rose { --f: var(--rose); } .folder.c-plum { --f: var(--plum); --f-ink: var(--on-plum); }
+/* back panel: the same colour as the tab, showing as a thin edge under the front */
+.folder::before { content: ""; position: absolute; left: 0; right: 0; top: 20px; bottom: 0; background: var(--f); border-radius: 6px 18px 18px 18px; }
+.folder-tab { position: absolute; top: 0; left: 0; width: 46%; height: 30px; background: var(--f); border-radius: 10px 4px 0 0; }
+.folder-tab::after { content: ""; position: absolute; top: 0; bottom: 0; right: -13px; width: 26px; background: var(--f); border-radius: 0 8px 0 0; transform: skewX(32deg); }
+.folder-sheet { position: absolute; left: 10px; right: 14px; top: 13px; height: 48px; background: var(--card); border: 1px solid var(--rule); border-radius: 5px; transform: rotate(-1.2deg); transition: transform .4s cubic-bezier(.2, .8, .2, 1); }
+.folder-sheet.s2 { left: 22px; right: 8px; top: 16px; transform: rotate(1.4deg); }
+.folder-front { position: relative; display: flex; flex-direction: column; justify-content: space-between; gap: var(--space-5); min-height: 150px; padding: var(--space-3) var(--space-3) var(--space-4) var(--space-4);
+  flex: 1; background: var(--card); border: 1px solid var(--rule); border-radius: 6px 18px 18px 18px; transform-origin: 50% 100%; transition: transform .4s cubic-bezier(.2, .8, .2, 1); }
+.folder-top { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-2); }
+.folder-icon { flex: none; width: 46px; height: 46px; border-radius: var(--radius-m); background: var(--f); color: var(--f-ink); display: grid; place-items: center; }
+.folder-icon .ic { width: 24px; height: 24px; }
+.folder-count { font-size: 13px; line-height: 18px; color: var(--ink-3); text-align: right; font-variant-numeric: tabular-nums; }
+.folder-count b { color: var(--ink); font-weight: 600; }
+.folder-name { font-family: var(--font-display); font-size: 18px; line-height: 22px; font-weight: 600; letter-spacing: -.02em; overflow-wrap: anywhere; }
+.folder-dir { display: block; margin-top: 2px; font-size: 13px; line-height: 18px; font-weight: 400; letter-spacing: 0; color: var(--ink-3); }
+@media (hover: hover) {
+  .folder:hover .folder-front { transform: perspective(900px) rotateX(-9deg); }
+  .folder:hover .folder-sheet { transform: translateY(-7px) rotate(-2.2deg); }
+  .folder:hover .folder-sheet.s2 { transform: translateY(-4px) rotate(2.4deg); }
+}
+.folder:active .folder-front, .folder.holding .folder-front { transform: perspective(900px) rotateX(-9deg) scale(.985); }
+.folder:active .folder-sheet, .folder.holding .folder-sheet { transform: translateY(-7px) rotate(-2.2deg); }
+.folder-new::before, .folder-new .folder-tab::after { display: none; }
+.folder-new .folder-tab { background: none; border: 1px dashed var(--rule); border-bottom: 0; }
+.folder-new .folder-front { background: transparent; border-style: dashed; align-items: center; justify-content: center; gap: var(--space-2); color: var(--ink-2); font-weight: 600; font-size: 15px; }
+.folder-new .folder-front .ic { width: 26px; height: 26px; }
+@media (prefers-reduced-motion: reduce) { .folder-front, .folder-sheet { transition: none; } .folder .folder-front, .folder .folder-sheet { transform: none !important; } }
+
+/* deck sheets (new deck, deck options) */
+.sheet-stats { margin: calc(-1 * var(--space-2)) 0 var(--space-4); color: var(--ink-3); font-size: 13px; line-height: 18px; }
+.sheet-form { display: flex; flex-direction: column; gap: var(--space-4); }
+.sheet-field { display: flex; flex-direction: column; gap: 6px; border: 0; padding: 0; margin: 0; min-width: 0; }
+.sheet-field > span, .sheet-field legend { font-size: 13px; line-height: 18px; font-weight: 600; color: var(--ink-2); padding: 0; }
+.sheet-field input:not([type=radio]), .sheet-field select { width: 100%; padding: 12px var(--space-3); border: 1px solid var(--rule); border-radius: var(--radius-m); background: var(--card); font-size: 16px; }
+.swatches > div { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-2); margin-top: 6px; }
+.sw { --f: var(--mustard); position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: var(--space-2) 0; border-radius: var(--radius-m); cursor: pointer; font-size: 13px; color: var(--ink-2); }
+.sw.c-sage { --f: var(--sage); } .sw.c-plum { --f: var(--plum); } .sw.c-rose { --f: var(--rose); }
+.sw::before { content: ""; width: 36px; height: 36px; border-radius: 10px; background: var(--f); box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 10%, transparent); transition: box-shadow .15s; }
+.sw:has(input:checked)::before { box-shadow: 0 0 0 2px var(--paper), 0 0 0 4px var(--ink); }
+.sw:has(input:checked) { color: var(--ink); font-weight: 600; }
+.sw input { position: absolute; opacity: 0; pointer-events: none; }
+.sw:has(input:focus-visible)::before { outline: 2px solid var(--link); outline-offset: 4px; }
+.btn.danger { color: #A3293D; border-color: color-mix(in srgb, #A3293D 35%, var(--rule)); }
+:root[data-theme="dark"] .btn.danger { color: #F2A0AC; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .btn.danger { color: #F2A0AC; } }
+
+/* ======================================================================
+   Example sentences: press and hold to open. A quiet tint fills in from the left while you hold.
+   ====================================================================== */
+[data-sent] { position: relative; isolation: isolate; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+[data-sent]::after { content: ""; position: absolute; inset: -6px -10px; z-index: -1; border-radius: var(--radius-m); background: color-mix(in srgb, currentColor 9%, transparent); transform: scaleX(0); transform-origin: left center; opacity: 0; pointer-events: none; }
+[data-sent].holding::after { transform: scaleX(1); opacity: 1; transition: transform .38s cubic-bezier(.4, 0, .6, 1) .08s, opacity .12s .08s; }
+.flash[data-sent]::after { display: none; }
+.flash[data-sent].holding { transform: scale(.985); transition: transform .38s .08s; }
+.hold-hint { margin: calc(-1 * var(--space-2)) 0 var(--space-4); font-size: 13px; line-height: 18px; color: var(--ink-3); }
+.pad + .hold-hint, #exr > .hold-hint { padding: 0 var(--space-4); margin-top: 0; }
+
+/* sentence rows in Bookmarks */
+.sres-no { font-family: var(--font-read); font-size: 20px; line-height: 26px; color: var(--ink); }
+.scell { grid-column: span 2; text-align: left; }
+.scell b { font-family: var(--font-read); font-weight: 400; font-size: 19px; line-height: 25px; letter-spacing: 0; }
+
+/* flashcards: a sentence card is a page from the book, not a word-class field */
+.flash.f-page { background: var(--card); color: var(--ink); border: 1px solid var(--rule); }
+.cf-sent { font-family: var(--font-read); font-size: 30px; line-height: 37px; letter-spacing: -.01em; overflow-wrap: anywhere; }
+.cardback .cf-sent { font-size: 24px; line-height: 31px; }
+.cb-words { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; font-size: 15px; line-height: 21px; }
+.cb-words b { font-weight: 600; }
+.cb-words span { font-family: var(--font-read); font-size: 16px; opacity: .8; }
+
+/* ======================================================================
+   Sentence page (Shirabe's "Example sentence" screen)
+   ====================================================================== */
+.sx { max-width: var(--page-narrow); margin: 0 auto; padding: var(--space-3) 0 var(--space-8); }
+.sx p { margin: 0; }
+.sx-hero { padding: var(--space-4) var(--space-5) var(--space-5); }
+.sx-no { font-family: var(--font-read); font-weight: 400; font-size: 34px; line-height: 42px; letter-spacing: -.012em; margin: 0 0 var(--space-5); text-wrap: pretty; }
+.sx-w { color: var(--ink); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--ink) 28%, transparent); text-decoration-thickness: 1.5px; text-underline-offset: 6px; transition: text-decoration-color .15s, background .15s; border-radius: 4px; }
+.sx-w:hover, .sx-w:active { text-decoration-color: var(--ink); background: var(--mustard-t); }
+.sx-tools { display: flex; flex-wrap: wrap; gap: var(--space-2); color: var(--ink); }
+.sx-tools .pill-out { height: 44px; font-size: 16px; gap: var(--space-4); padding: 0 var(--space-4) 0 var(--space-5); }
+.sx-tools .pill-out .ic { width: 20px; height: 20px; }
+.sx-en { margin: 0 var(--space-5); padding: var(--space-4) 0 var(--space-6); border-top: 1px solid var(--rule); font-family: var(--font-read); font-size: 22px; line-height: 29px; color: var(--ink-2); }
+.sx-en .sx-alt { font-size: 17px; line-height: 23px; color: var(--ink-3); margin-top: var(--space-2); }
+.sx-words .w-eyebrow { margin: 0 var(--space-5) var(--space-1); }
+.sx-words .results .res { padding-left: var(--space-5); padding-right: var(--space-5); }
+.sx-words .results .res + .res::before { left: var(--space-5); right: var(--space-5); }
+.sx-src { margin: var(--space-5) var(--space-5) 0 !important; }
+@media (min-width: 900px) {
+  .sx-hero { padding-top: var(--space-6); }
+  .sx-no { font-size: 44px; line-height: 54px; }
+}

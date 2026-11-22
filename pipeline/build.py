@@ -361,6 +361,18 @@ for key, ids in by_lemma.items():
     for i, wl in assign.items():
         if not wl: continue
         e = entries[i]
+        # an entry with several spellings (bo/bu) is matched once per spelling: the main spelling's
+        # Wiktionary entry wins, so the archaic "bu" can't overwrite "bo"
+        lrank = next((k for k, l in enumerate(e['l']) if l.lower() == lem), len(e['l']))
+        # a Wiktionary page that only says "form removed in the reform" / "alternative form of" loses to a real one
+        if all(re.match(r'(form removed|alternative (form|spelling)|obsolete (form|spelling)|nonstandard (form|spelling))', x['g'], re.I) for w in wl for x in w['senses']):
+            lrank += 10
+        # a spelling that another dictionary word shares (malm "ore" vs malm/malme "heartwood") says less
+        # about which word this is than one only this entry uses
+        if len(ids) > 1: lrank += 5
+        if e.get('_enrank', 99) <= lrank: continue
+        e['_enrank'] = lrank
+        for k in ('etyen', 'top', 'syn', 'ant'): e.pop(k, None)
         e['en'] = [s for w in wl for s in w['senses']]
         etys = [w['ety'] for w in wl if w.get('ety')]
         if etys: e['etyen'] = etys[0] if len(set(etys)) == 1 else ' / '.join(dict.fromkeys(etys))
@@ -664,7 +676,7 @@ json.dump(forms_out, open(os.path.join(OUT, 'forms.json'), 'w'), ensure_ascii=Fa
 # detail shards
 shards = collections.defaultdict(dict)
 for i, e in entries.items():
-    d = {k: v for k, v in e.items() if k not in ('id',)}
+    d = {k: v for k, v in e.items() if k not in ('id', '_enrank')}
     if i in rank: d['r'] = rank[i]
     shards[i % NSHARDS][i] = d
 for s, m in shards.items():

@@ -25,7 +25,8 @@ Rules that keep it intentional:
 | Role | Family | Size / line-height |
 |---|---|---|
 | Word-page headword | Schibsted Grotesk 600, −0.05em | 56–72 / 0.95 mobile, 120 desktop |
-| Word of the day, splash | Newsreader 400, coral on plum | 76 (112 desktop), splash 120–280 |
+| Word of the day | Newsreader 400, coral on plum | 76 (112 desktop) |
+| Sentence page sentence | Newsreader 400 | 34 / 42 (44 / 54 desktop) |
 | Page titles (Notion style) | Schibsted Grotesk 700, −0.035em | 34 / 38 (44 / 48 desktop) |
 | Single meaning lead | Newsreader | 34 / 40 |
 | Meanings | Newsreader | 26 / 32 |
@@ -67,10 +68,16 @@ Verified with axe-core 4.10 (WCAG 2 A/AA): zero violations on home, search, word
 
 - **Word page**: colour-field hero (kicker in serif lowercase, headword, IPA · "Tone N" link, outlined `LISTEN →` pill `.pill-out`), then meanings in large serif, then sections under hairline labels; desktop = two columns with a sticky pronunciation/forms panel.
 - **Home**: Notion title "Ordbok. / Slå opp et ord.", plum Word of the day card (coral serif word, hairline footer), four Speak Sync tiles (sage, mustard, plum, rose tints), recent words.
-- **Splash**: plum field, "Opp/slag" in coral Newsreader running off the edges, credit line over a coral hairline.
+- **Launch screen** (`#splash`): the book icon, 112px, centred on `--paper`, like a native launch screen. Cold starts only: held for at least 300ms after navigation start, then dissolves in 260ms with a 1.06 lift. A resumed app never shows it; when a new release arrives while the app is in use, it reloads the next time the app goes to the background, with `sessionStorage['oppslag.quiet']` set so the reload skips the launch screen. `forms.json` (7 MB) loads after the first screen, not before it; searches wait for it with `db.formsReady()`.
 - **Lists/settings**: hairline-bordered groups (`.group`), large page titles that hand off to the top bar (`watchLargeTitle()`).
-- **Flashcards**: card is the word's colour field; grade buttons are pastel tiles.
+- **Flashcards**: card is the word's colour field; sentence cards are a "page" (`f-page`: card colour, hairline, serif sentence, word list on the back); grade buttons are pastel tiles.
+- **Decks as folders** (`.folder`, owner's reference: a links app's collection folders): tab + back panel in the deck's colour (`d.color`, the user picks mustard/sage/plum/rose; older decks fall back by position), two paper sheets peeking out, hairline front panel with icon tile, counts top right, name and direction bottom left. Hover or press tips the front open (`rotateX(-9deg)`), the sheets rise. Press and hold a folder for its options sheet (name, direction, colour, delete). The reference's black offset shadows were left out on purpose: hairline world.
+- **Example sentences** are first-class like in Shirabe: `#/x/<Tatoeba id>` is a sentence page (large serif sentence with every word linked, Listen and Copy pills, translations, "Words in this sentence" rows, star and bookmark). Saved in lists as the string `"x<id>"` next to numeric word ids, so they flow into bookmarks, decks, Anki export and share. Anywhere a sentence appears (`[data-sent]`: word-page examples, example search, flashcard backs, sentence cards) press and hold for 460ms to open it; a tint fills in from the left while holding (`setupHold()` in `app.js`). A one-line hint shows until the first hold.
 - **Icons**: Phosphor (regular), MIT, inlined in `app/js/icons.js`.
+
+## Data rule: spellings
+
+An entry with several spellings (bo/bu, malm/malme) is matched to Wiktionary once per spelling. The build keeps one match per entry, preferring: a real page over a stub ("form removed in the reform", "alternative form of"), then a spelling no other dictionary word shares, then the main spelling. Before this rule the last spelling won, so *bo* "to live" showed the archaic *bu* "to prepare".
 
 ## App icon
 
