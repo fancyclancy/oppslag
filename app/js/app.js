@@ -79,6 +79,9 @@ const scrollMem = new Map();
 let lastHash = location.hash || '#/';
 let currentCleanup = null;
 let routeSeq = 0;   // each navigation gets a number; slower, superseded renders bail out
+let restoreY = 0;   // going back: the scroll position to return to, so long lists render far enough to reach it
+// the app restores scroll itself; the browser's own restore would jump the old page before the transition captures it
+if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
 
 async function route() {
   routeSeq++;
@@ -112,17 +115,41 @@ async function onHashChange() {
     dir = b > a || (b === 2 && a === 2) ? 'forward' : b < a ? 'back' : 'fade';
   }
   lastHash = hash;
-  await transition(dir, async () => {
-    await route();
-    window.scrollTo(0, dir === 'back' ? (scrollMem.get(hash) || 0) : 0);
+  const y = dir === 'back' ? (scrollMem.get(hash) || 0) : 0;
+  await transition(dir, hash, async () => {
+    restoreY = y;
+    try { await route(); } finally { restoreY = 0; }
+    window.scrollTo(0, y);
   });
 }
-async function transition(dir, fn) {
+// The data a page needs, loaded before the transition starts. A view transition freezes the screen
+// while its callback runs, so a first visit that fetches and parses JSON inside it looks like a stuck
+// tap followed by a jump. Loading first keeps the old page live; once cached, this resolves at once.
+function preload(hash) {
+  const p = [];
+  const w = hash.match(/^#\/w\/(-?\d+)/);
+  if (w) p.push(db.entry(+w[1]), sents(), db.lists());
+  else if (/^#\/x\//.test(hash)) p.push(sents(), db.formsReady());
+  else if (/^#\/(list|builtin|cards|review)/.test(hash)) p.push(db.lists(), sents());
+  else if (/^#\/examples/.test(hash)) p.push(sents());
+  else if (/^#\/s\//.test(hash) && !db.formsLoaded()) p.push(db.formsReady());
+  if (!p.length) return null;
+  return Promise.race([Promise.allSettled(p), new Promise(r => setTimeout(r, 1500))]);
+}
+let navSeq = 0;
+async function transition(dir, hash, fn) {
+  const my = ++navSeq;
+  const pre = preload(hash);
+  if (pre) { await pre; if (my !== navSeq) return; }   // a newer navigation took over while loading
   if (!document.startViewTransition || reducedMotion() || !document.body.classList.contains('ready')) return fn();
-  document.documentElement.dataset.nav = dir;
-  const t = document.startViewTransition(fn);
+  const root = document.documentElement;
+  root.dataset.nav = dir;
+  root.classList.add('vt');
+  // never let a slow render hold the frozen screen long enough for the browser to abort the animation
+  const t = document.startViewTransition(() => Promise.race([fn(), new Promise(r => setTimeout(r, 600))]));
   t.ready.catch(() => {}); t.updateCallbackDone.catch(() => {});   // skipped when a newer navigation starts
   try { await t.finished; } catch {}
+  if (my === navSeq) root.classList.remove('vt');
 }
 // replace the current page (used by the prev/next result arrows)
 async function go(hash, dir, replace = false) {
@@ -130,7 +157,7 @@ async function go(hash, dir, replace = false) {
   if (replace) { history.replaceState(null, '', hash); navStack[navStack.length - 1] = hash; }
   else { history.pushState(null, '', hash); navStack.push(hash); }
   lastHash = hash;
-  await transition(dir, async () => { await route(); window.scrollTo(0, 0); });
+  await transition(dir, hash, async () => { await route(); window.scrollTo(0, 0); });
 }
 
 // ------------------------------------------------------------------ search box
@@ -257,6 +284,11 @@ function bandHTML(title, no = '', extra = '') { return `<div class="band"><span>
 function progressive(container, ids, renderFn, first = 40, step = 80) {
   container.innerHTML = ids.slice(0, first).map(renderFn).join('');
   let shown = first;
+  // coming back to a long list: render enough rows to reach the saved scroll position
+  while (restoreY && shown < ids.length && container.getBoundingClientRect().bottom + scrollY < restoreY + innerHeight) {
+    container.insertAdjacentHTML('beforeend', ids.slice(shown, shown + step).map(renderFn).join(''));
+    shown += step;
+  }
   if (shown >= ids.length) return;
   const sentinel = document.createElement('div');
   container.after(sentinel);
