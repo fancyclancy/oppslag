@@ -153,8 +153,6 @@ body.typing #suggest { top: calc(var(--safe-t) + var(--nav-h) + var(--search-h) 
 #drawer a.active .ic { color: var(--ink); }
 #drawer hr { border: 0; border-top: 1px solid var(--rule); margin: var(--space-3); }
 #scrim { position: fixed; inset: 0; z-index: 39; background: rgba(28, 27, 28, .32); opacity: 0; pointer-events: none; transition: opacity .25s; }
-body.drawer-open #drawer { transform: none; }
-body.drawer-open #scrim { opacity: 1; pointer-events: auto; }
 @media (min-width: 1100px) {
   #drawer { transform: none; box-shadow: none; border-right: 1px solid var(--rule); z-index: 15; width: 260px; }
   #scrim { display: none; }
@@ -585,14 +583,7 @@ html[data-nav="fade"]::view-transition-old(root) { animation: vt-hold .18s linea
 ::view-transition-group(topbar) { overflow: clip; animation-duration: .26s; animation-timing-function: var(--vt-ease); }
 ::view-transition-old(topbar), ::view-transition-new(topbar) { animation-duration: .18s; animation-timing-function: ease-out; }
 
-/* Choosing a page in the menu: the drawer slides shut and the scrim lifts in the same motion as the page
-   change, instead of being photographed open and fading out with the old page. While a transition is
-   being set up their own CSS transitions are off, so they're captured fully closed. */
-#drawer { view-transition-name: drawer; }
-#scrim { view-transition-name: scrim; }
-html.vt #drawer, html.vt #scrim { transition: none; }
-::view-transition-group(drawer) { animation-duration: .3s; animation-timing-function: var(--vt-ease); }
-::view-transition-old(scrim), ::view-transition-new(scrim) { animation-duration: .26s; }
+
 
 /* a cold first visit that still has data to load: the current page dims a little so the tap registered */
 #view { transition: opacity .2s ease; }
@@ -601,7 +592,7 @@ body.nav-wait #view { opacity: .55; }
 @media (prefers-reduced-motion: reduce) {
   /* app.js turns every page change into the crossfade; nothing slides */
   * { animation: none !important; transition: none !important; }
-  ::view-transition-group(drawer), ::view-transition-group(topbar) { animation-duration: 0s; }
+  ::view-transition-group(topbar) { animation-duration: 0s; }
 }
 
 /* word-list sections */
@@ -713,4 +704,45 @@ body.nav-wait #view { opacity: .55; }
 @media (min-width: 900px) {
   .sx-hero { padding-top: var(--space-6); }
   .sx-no { font-size: 44px; line-height: 54px; }
+}
+
+/* ======================================================================
+   The page layer (phones and tablets). Like Shirabe, the menu lies still underneath and the whole page
+   slides right to reveal it; a swipe-back drags the same layer off to uncover the previous page (#under).
+   app.js sets --page-x (where the page is) and --page-ms (0 while the finger leads, the release time after).
+   ====================================================================== */
+#pagebg { display: none; }
+@media (max-width: 1099px) {
+  #pagebg { display: block; position: fixed; inset: 0; z-index: 2; background: var(--paper); }
+  #view { position: relative; z-index: 3; }
+  #drawer { z-index: 1; width: var(--drawer-w, 300px); transform: none; transition: none; box-shadow: none; visibility: hidden;
+    background: var(--sunken); padding-left: max(var(--space-3), env(safe-area-inset-left)); }
+  #drawer a.active { background: var(--paper); }
+  html.drawer-on #drawer { visibility: visible; }
+  /* the visible strip of page while the menu is open: tap or drag it to close */
+  #scrim { display: none; z-index: 30; background: transparent; opacity: 1; transition: none; pointer-events: auto; }
+  html.drawer-open #scrim { display: block; }
+  html.page-moving .topbar, html.page-moving #view, html.page-moving #pagebg, html.page-moving #pager, html.page-moving #scrim {
+    transform: translate3d(var(--page-x, 0px), 0, 0);
+    transition: transform var(--page-ms, 0ms) cubic-bezier(.32, .72, 0, 1);
+  }
+  /* the page's leading edge casts a soft shadow onto whatever it reveals */
+  html.page-moving #pagebg { box-shadow: -1px 0 0 color-mix(in srgb, var(--ink) 8%, transparent), -14px 0 36px rgba(20, 14, 14, .16); }
+  html.page-moving .topbar { box-shadow: -1px 0 0 color-mix(in srgb, var(--ink) 8%, transparent); }
+
+  /* swipe-back: the previous page underneath, 30% behind and lightly shaded, catching up as the
+     current page leaves (same timing as the page, so they stay locked together on release) */
+  #under { position: fixed; inset: 0; z-index: 1; background: var(--paper); overflow: hidden; pointer-events: none;
+    transform: translate3d(calc((var(--page-x, 0px) - 100vw) * .3), 0, 0);
+    transition: transform var(--page-ms, 0ms) cubic-bezier(.32, .72, 0, 1); }
+  #under::after { content: ""; position: absolute; inset: 0; z-index: 40; background: #140E0E; opacity: .1; pointer-events: none; }
+  #under .topbar { position: absolute; view-transition-name: none; }
+  #under .under-scroll { position: absolute; left: 0; right: 0; top: calc(var(--safe-t) + var(--nav-h)); }
+  #under.has-search .under-scroll { top: calc(var(--safe-t) + var(--nav-h) + var(--search-h)); }
+  #under.has-search .searchrow { display: flex; }
+  #under.scrolled .topbar { border-bottom-color: var(--rule); }
+  #under.hero-visible [id="navTitle"] { opacity: 0; }
+  #under.page-word #view { max-width: var(--page-max); }
+  #under.page-word .navrow { max-width: var(--page-max); }
+  #under #keybar { display: none; }
 }

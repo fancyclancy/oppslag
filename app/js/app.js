@@ -47,12 +47,72 @@ function setNav({ title = '', back = null, right = '', search = false }) {
   $('#navRight').innerHTML = right;
   if (!search) document.body.classList.remove('typing');
 }
-function goBack() {
-  if (navStack.length > 1) { expectBack = true; history.back(); }
-  else go(backTarget || '#/', 'back', true);
+function goBack(fromSwipe = false) {
+  if (navStack.length > 1) { expectBack = true; swipeBack = fromSwipe; history.back(); }
+  else go(backTarget || '#/', fromSwipe ? 'none' : 'back', true).then(() => { if (fromSwipe) endBackDrag(); });
 }
-function openDrawer() { document.body.classList.add('drawer-open'); }
-function closeDrawer() { document.body.classList.remove('drawer-open'); }
+// ---- swipe-back: the current page follows the finger; the previous one waits underneath, slightly
+// behind (parallax) and shaded, the way iOS does it
+function startBackDrag() {
+  const prev = navStack.length > 1 ? navStack[navStack.length - 2] : backTarget;
+  const snap = snaps.get(prev);
+  $('#under')?.remove();
+  const u = document.createElement('div');
+  u.id = 'under'; u.inert = true; u.setAttribute('aria-hidden', 'true');
+  if (snap) {
+    u.className = snap.cls + (snap.page ? ' page-' + snap.page : '');
+    u.innerHTML = `<header class="topbar">${snap.top}</header><div class="under-scroll" style="transform:translateY(${-snap.y}px)">${snap.view}</div>`;
+    const q = u.querySelector('input[type=search]'); if (q) q.value = snap.q;
+  }
+  document.body.appendChild(u);
+  return true;
+}
+function endBackDrag() {
+  const r = document.documentElement;
+  clearTimeout(settleTimer);
+  r.classList.remove('page-moving', 'back-drag'); r.style.removeProperty('--page-x');
+  pageX = 0;
+  $('#under')?.remove();
+}
+// ------------------------------------------------------------------ the page layer
+// Like Shirabe: the menu lies still underneath and the whole page (top bar, content, its background)
+// slides right to reveal it, leaving a strip of the page you can tap or drag back. The same layer
+// follows the finger on a swipe-back, with the previous page showing underneath.
+const MOBILE_NAV = () => innerWidth < 1100;            // wider screens keep the menu as a sidebar
+const drawerW = () => Math.round(Math.min(innerWidth * .74, 300));
+const EASE_MS = { open: 400, close: 440 };             // closing is a touch slower, so it reads as one glide
+let pageX = 0, drawerOpen = false, settleTimer = null;
+function placePage(x, ms = 0) {
+  clearTimeout(settleTimer);
+  const r = document.documentElement;
+  pageX = x;
+  r.style.setProperty('--page-x', x + 'px');
+  r.style.setProperty('--page-ms', (reducedMotion() ? 0 : ms) + 'ms');
+  r.classList.add('page-moving');
+}
+function settlePage(x, ms, done) {
+  placePage(x, ms);
+  settleTimer = setTimeout(() => {
+    if (x === 0) { const r = document.documentElement; r.classList.remove('page-moving', 'drawer-on'); r.style.removeProperty('--page-x'); }
+    done?.();
+  }, (reducedMotion() ? 0 : ms) + 30);
+}
+function openDrawer(ms = EASE_MS.open) {
+  if (!MOBILE_NAV()) return;
+  const r = document.documentElement;
+  r.style.setProperty('--drawer-w', drawerW() + 'px');
+  r.classList.add('drawer-on', 'drawer-open');
+  drawerOpen = true; hideSuggest(); qInput().blur();
+  settlePage(drawerW(), ms);
+}
+function closeDrawer(ms = EASE_MS.close) {
+  if (!drawerOpen && !pageX) return;
+  drawerOpen = false;
+  document.documentElement.classList.remove('drawer-open');
+  settlePage(0, ms);
+}
+// how long a release should take: the rest of the distance at the finger's speed, within sensible bounds
+const releaseMs = (dist, v, max) => Math.round(Math.max(180, Math.min(max, Math.abs(dist) / Math.max(Math.abs(v), .8) * 1.4)));
 
 // ------------------------------------------------------------------ router + transitions
 const routes = [
@@ -86,7 +146,7 @@ if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
 async function route() {
   routeSeq++;
   delete document.body.dataset.page;
-  closeDrawer(); hideSuggest();
+  hideSuggest();
   currentCleanup?.(); currentCleanup = null;
   $('#pager').hidden = true;
   view().onclick = null;
@@ -109,15 +169,30 @@ async function route() {
 // Safari tabs that don't are recognised by a finger dragging in from the left edge (a tap on the back
 // button never counts). The Home Screen app has no system swipe-back: the app does its own (boot()).
 const STANDALONE = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+// Safari on iPhone/iPad in a browser tab has its own swipe-back on the left edge; the Home Screen app doesn't
+const BROWSER_EDGE = !STANDALONE && (/iP(hone|ad|od)/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1));
 let skipAnim = false, browserSwipeAt = -1e9, expectBack = false, linkTapAt = -1e9;
 document.addEventListener('click', (e) => { if (e.target.closest('a[href^="#"]')) linkTapAt = performance.now(); }, true);
 addEventListener('popstate', (e) => {
-  skipAnim = !!e.hasUAVisualTransition || (!STANDALONE && performance.now() - browserSwipeAt < 800);
+  skipAnim = !!e.hasUAVisualTransition || (BROWSER_EDGE && performance.now() - browserSwipeAt < 800);
 });
 
+// A picture of each page as it's left (its markup, scroll and top-bar state), shown underneath while a
+// swipe-back drags the current page away, so the finger uncovers the page it's going back to.
+const snaps = new Map();
+function snapshotPage(hash) {
+  const b = document.body;
+  snaps.set(hash, { top: $('.topbar').innerHTML, view: view().outerHTML, q: qInput().value, y: scrollY,
+    cls: ['has-search', 'hero-visible', 'scrolled', 'root'].filter(c => b.classList.contains(c)).join(' '), page: b.dataset.page || '' });
+  if (snaps.size > 24) snaps.delete(snaps.keys().next().value);
+}
+let swipeBack = false;
 async function onHashChange() {
   const hash = location.hash || '#/';
-  const instant = skipAnim; skipAnim = false;
+  const fromSwipe = swipeBack; swipeBack = false;
+  const fromDrawer = drawerOpen;
+  const instant = skipAnim || fromSwipe || fromDrawer; skipAnim = false;
+  snapshotPage(lastHash);
   scrollMem.set(lastHash, scrollY);
   let dir;
   // a real step back (the back button, a swipe, the browser's back) pops; following a link to the page
@@ -137,6 +212,10 @@ async function onHashChange() {
     try { await route(); } finally { restoreY = 0; }
     window.scrollTo(0, y);
   });
+  // the new page is drawn: a finished swipe-back drops the picture underneath in the same frame; a
+  // choice from the menu glides the page (already showing the new screen) back over the menu
+  if (fromSwipe) endBackDrag();
+  if (fromDrawer) requestAnimationFrame(() => closeDrawer());
 }
 // The data a page needs, loaded before the transition starts. A view transition freezes the screen
 // while its callback runs, so a first visit that fetches and parses JSON inside it looks like a stuck
@@ -152,7 +231,7 @@ function preload(hash) {
   if (!p.length) return null;
   return Promise.race([Promise.allSettled(p), new Promise(r => setTimeout(r, 4000))]);
 }
-let navSeq = 0;
+let navSeq = 0, activeVT = null;
 async function transition(dir, hash, fn) {
   const my = ++navSeq;
   const pre = preload(hash);
@@ -169,6 +248,7 @@ async function transition(dir, hash, fn) {
   root.classList.add('vt');
   // the data is loaded, so the page is fully built before the new snapshot is taken: never half-drawn
   const t = document.startViewTransition(fn);
+  activeVT = t;
   t.ready.catch(() => {}); t.updateCallbackDone.catch(() => {});   // skipped when a newer navigation starts
   try { await t.finished; } catch {}
   if (my === navSeq) root.classList.remove('vt');
@@ -726,6 +806,70 @@ function warmUp() {
     Promise.resolve().then(jobs.shift()).catch(() => {}).finally(() => setTimeout(next, 200));
   };
   setTimeout(next, 900);
+}
+
+// Finger-tracking gestures (phones and tablets): drag from the left edge to open the menu on a top-level
+// page or to go back on a deeper one; drag the page strip back (or tap it) to close the menu. A release
+// finishes the move if the finger was flicked that way or got past halfway, and takes the rest of the
+// distance at the finger's own speed. In a Safari tab the left edge belongs to the browser's own back.
+function setupGestures() {
+  let g = null;
+  const onMove = (e) => {
+    if (!g) return;
+    const t = e.touches[0], dx = t.clientX - g.x0, dy = t.clientY - g.y0;
+    if (!g.lock) {
+      if (Math.abs(dy) > 8 && Math.abs(dy) > Math.abs(dx)) { stop(); return; }   // a scroll, not a swipe
+      if (Math.abs(dx) < 6) return;
+      g.lock = true;
+      activeVT?.skipTransition();   // a swipe during a page change finishes that change at once and takes over
+      if (g.mode === 'open') { const r = document.documentElement; r.style.setProperty('--drawer-w', drawerW() + 'px'); r.classList.add('drawer-on'); hideSuggest(); qInput().blur(); }
+      if (g.mode === 'back') { startBackDrag(); document.documentElement.classList.add('back-drag'); }
+    }
+    e.preventDefault();
+    const now = performance.now(), dt = now - g.t;
+    if (dt > 0) g.v = .75 * ((t.clientX - g.lastX) / dt) + .25 * g.v;
+    g.t = now; g.lastX = t.clientX;
+    const max = g.mode === 'back' ? innerWidth : drawerW();
+    let x = g.base + dx;
+    if (x > max) x = g.mode === 'back' ? max : max + (x - max) * .12;   // the menu stretches a little past open
+    placePage(Math.max(0, x), 0);
+  };
+  const stop = () => { document.removeEventListener('touchmove', onMove); g = null; };
+  document.addEventListener('touchstart', (e) => {
+    stop();
+    if (!MOBILE_NAV() || e.touches.length > 1 || $('.modal-wrap')) return;
+    const t = e.touches[0];
+    let mode = null;
+    if (drawerOpen) { if (t.clientX >= pageX - 6) mode = 'close'; }
+    else if (t.clientX < 28) {
+      if (BROWSER_EDGE) { browserSwipeAt = performance.now(); return; }
+      mode = backTarget ? 'back' : 'open';
+    }
+    if (!mode) return;
+    g = { mode, x0: t.clientX, y0: t.clientY, base: pageX, lock: false, t: performance.now(), lastX: t.clientX, v: 0 };
+    document.addEventListener('touchmove', onMove, { passive: false });
+  }, { passive: true });
+  const end = () => {
+    if (!g) return;
+    const m = g; stop();
+    if (!m.lock) { if (m.mode === 'close') closeDrawer(); return; }   // a tap on the page strip closes the menu
+    const x = pageX;
+    if (m.mode === 'back') {
+      const done = m.v > .5 || (m.v > -.2 && x > innerWidth * .4);   // a real flick, or past 40%
+      const ms = releaseMs((done ? innerWidth : 0) - x, m.v, 380);
+      placePage(done ? innerWidth : 0, ms);
+      settleTimer = setTimeout(() => { if (done) goBack(true); else endBackDrag(); }, (reducedMotion() ? 0 : ms) + 20);
+      return;
+    }
+    const W = drawerW();
+    const open = m.v > .5 ? true : m.v < -.5 ? false : x > W / 2;
+    const ms = releaseMs((open ? W : 0) - x, m.v, open ? EASE_MS.open : EASE_MS.close);
+    if (open) { drawerOpen = true; document.documentElement.classList.add('drawer-open'); settlePage(W, ms); }
+    else { drawerOpen = false; document.documentElement.classList.remove('drawer-open'); settlePage(0, ms); }
+  };
+  document.addEventListener('touchend', end, { passive: true });
+  document.addEventListener('touchcancel', end, { passive: true });
+  addEventListener('resize', () => { if (drawerOpen && !MOBILE_NAV()) { drawerOpen = false; endBackDrag(); document.documentElement.classList.remove('drawer-open', 'drawer-on'); } });
 }
 
 // Press-and-hold: sentences open on their own page; decks open their options
@@ -1352,18 +1496,7 @@ async function boot() {
   $('#scrim').addEventListener('click', closeDrawer);
   setupSearch();
   setupHold();
-  // Edge swipe from the left: back on detail pages, the menu on top-level pages. The Home Screen app
-  // has no system swipe-back, so the app acts as soon as the drag is clearly sideways. In a Safari tab
-  // the browser owns that edge: the app only notes the drag, so the browser's back isn't animated twice.
-  let sx = null, sy = null;
-  document.addEventListener('touchstart', (e) => { const t = e.touches[0]; sx = t.clientX < 24 ? t.clientX : null; sy = t.clientY; }, { passive: true });
-  document.addEventListener('touchmove', (e) => {
-    if (sx === null) return;
-    const t = e.touches[0], dx = t.clientX - sx, dy = Math.abs(t.clientY - sy);
-    if (dy > 40) { sx = null; return; }
-    if (!STANDALONE) { if (dx > 12) browserSwipeAt = performance.now(); return; }
-    if (dx > 60) { sx = null; backTarget ? goBack() : openDrawer(); }
-  }, { passive: true });
+  setupGestures();
   document.addEventListener('keydown', (e) => {
     const typing = e.target.matches('input,textarea,select');
     if ((e.key === '/' && !typing) || (e.key === 'k' && (e.metaKey || e.ctrlKey))) { e.preventDefault(); if (!document.body.classList.contains('has-search')) location.hash = '#/'; setTimeout(() => { qInput().focus(); qInput().select(); }, 30); }
