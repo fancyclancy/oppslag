@@ -12,7 +12,7 @@ from icon_svg import icon, CONCEPTS
 from PIL import Image, ImageDraw
 
 OUT = os.path.join(HERE, '..', 'app', 'icons')
-PREFIX = 'bok6'
+PREFIX = 'bok7'
 CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
 
 kw = dict(CONCEPTS['C']); kw.pop('label')

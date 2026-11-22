@@ -50,7 +50,10 @@ def oe(cx, cy, rx, ry, side, top, slash_w, gap, ext, angle_deg, mode, slash_fill
 
 def icon(mode='inlay', rx=212, ry=240, side=100, top=33, slash_w=50, gap=14, ext=32, angle=56, mask=True, label='', slash_fill='url(#blue)', joins='open'):
     COVER_B = 792                     # bottom of the cover face
-    M = 54                            # even margin of back cover round the pages (bottom and right)
+    CR = 190                          # cover's bottom-right corner: a big soft curve, so the pages sweep up
+                                      # the right edge underneath it and meet it steeply (Moleskine, Apple's Dictionary)
+    PT = 520                          # top of the page block (hidden under the cover except at the fore-edge)
+    M = 40                            # even margin of back cover round the pages (bottom and right)
     PB_L, PB_R, PB_B = 40, S - M, S - M   # page block
     RC = 230 - M                      # fore-edge corner, parallel to the icon's own corner
     RP = 190                          # page block's bottom-left corner, concentric with the icon's corner
@@ -68,18 +71,18 @@ def icon(mode='inlay', rx=212, ry=240, side=100, top=33, slash_w=50, gap=14, ext
         rl = max(26, RP - (PB_B - y) - 6)
         xl = PB_L + RP - rl
         shade = 0.20 + 0.25 * ((k * 7) % 5) / 4      # irregular, like real page edges
-        lines.append(f'<path d="M{xl:.1f},{y - rl - 22:.1f} V{y - rl:.1f} A{rl:.1f},{rl:.1f} 0 0,0 {xl + rl:.1f},{y:.1f} H{xr - r:.1f} A{r:.1f},{r:.1f} 0 0,0 {xr:.1f},{y - r:.1f} V{COVER_B - 60}" '
+        lines.append(f'<path d="M{xl:.1f},{y - rl - 22:.1f} V{y - rl:.1f} A{rl:.1f},{rl:.1f} 0 0,0 {xl + rl:.1f},{y:.1f} H{xr - r:.1f} A{r:.1f},{r:.1f} 0 0,0 {xr:.1f},{y - r:.1f} V{PT}" '
                      f'fill="none" stroke="#9C8F78" stroke-opacity="{shade:.2f}" stroke-width="{1.6 if k % 3 else 2.4}"/>')
     lines = '\n    '.join(lines)
     mark = oe(S / 2, COVER_B / 2 + 6, rx, ry, side, top, slash_w, gap, ext, angle, mode, slash_fill, joins)
-    PAGES = f"M{PB_L},{COVER_B - 80} H{PB_R} V{PB_B - RC} A{RC},{RC} 0 0,1 {PB_R - RC},{PB_B} H{PB_L + RP} A{RP},{RP} 0 0,1 {PB_L},{PB_B - RP} Z"
+    PAGES = f"M{PB_L},{PT} H{PB_R} V{PB_B - RC} A{RC},{RC} 0 0,1 {PB_R - RC},{PB_B} H{PB_L + RP} A{RP},{RP} 0 0,1 {PB_L},{PB_B - RP} Z"
     # the cover's bottom edge rolls down round the pages' top-left corner and carries on as the spine
     # (Apple's Dictionary icon): a convex lip, not a corner
     LIP_R, LIP_X = 70, 30             # lip radius; x of the spine's inner edge
     def cover(dy=0):
         b = COVER_B + dy
         x0 = LIP_X + LIP_R
-        return f"M0,0 H{S} V{b - 132} A132,132 0 0,1 {S - 132},{b} H{x0} A{LIP_R},{LIP_R} 0 0,0 {LIP_X},{b + LIP_R} V{S} H0 Z"
+        return f"M0,0 H{S} V{b - CR} A{CR},{CR} 0 0,1 {S - CR},{b} H{x0} A{LIP_R},{LIP_R} 0 0,0 {LIP_X},{b + LIP_R} V{S} H0 Z"
     COVER = cover()
     clip = f'<clipPath id="squircle"><rect width="{S}" height="{S}" rx="230" ry="230"/></clipPath>' if mask else ''
     return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {S} {S}" width="{S}" height="{S}">
@@ -90,6 +93,10 @@ def icon(mode='inlay', rx=212, ry=240, side=100, top=33, slash_w=50, gap=14, ext
   </linearGradient>
   <linearGradient id="back" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7A2328"/><stop offset="1" stop-color="#5E181C"/></linearGradient>
   <linearGradient id="rimFade" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="{S - 260}" y2="0"><stop offset="0" stop-color="#C4585A" stop-opacity=".55"/><stop offset=".45" stop-color="#C4585A" stop-opacity=".4"/><stop offset="1" stop-color="#C4585A" stop-opacity="0"/></linearGradient>
+  <linearGradient id="spineShadow" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="170" y2="0"><stop offset="0" stop-color="#22050A" stop-opacity=".55"/><stop offset=".35" stop-color="#22050A" stop-opacity=".22"/><stop offset="1" stop-color="#22050A" stop-opacity="0"/></linearGradient>
+  <linearGradient id="edgeShadow" gradientUnits="userSpaceOnUse" x1="{S - 70}" y1="0" x2="{S}" y2="0"><stop offset="0" stop-color="#22050A" stop-opacity="0"/><stop offset="1" stop-color="#22050A" stop-opacity=".18"/></linearGradient>
+  <linearGradient id="lipShadeBottom" gradientUnits="userSpaceOnUse" x1="0" y1="{PB_B - 40}" x2="0" y2="{PB_B}"><stop offset="0" stop-color="#4A2418" stop-opacity="0"/><stop offset="1" stop-color="#4A2418" stop-opacity=".30"/></linearGradient>
+  <linearGradient id="lipShadeRight" gradientUnits="userSpaceOnUse" x1="{PB_R - 44}" y1="0" x2="{PB_R}" y2="0"><stop offset="0" stop-color="#4A2418" stop-opacity="0"/><stop offset="1" stop-color="#4A2418" stop-opacity=".26"/></linearGradient>
   <radialGradient id="crease"><stop offset="0" stop-color="#4A2418" stop-opacity=".42"/><stop offset="1" stop-color="#4A2418" stop-opacity="0"/></radialGradient>
   <linearGradient id="pageShade" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#5A3A2A" stop-opacity=".30"/><stop offset=".07" stop-color="#5A3A2A" stop-opacity="0"/></linearGradient>
   <linearGradient id="spine" x1="0" y1="0" x2="1" y2="0">
@@ -98,7 +105,7 @@ def icon(mode='inlay', rx=212, ry=240, side=100, top=33, slash_w=50, gap=14, ext
   <linearGradient id="paper" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FBF6EA"/><stop offset="1" stop-color="#E8DDC6"/></linearGradient>
   <linearGradient id="ink" gradientUnits="userSpaceOnUse" x1="0" y1="120" x2="0" y2="700"><stop offset="0" stop-color="#FFF9EE"/><stop offset="1" stop-color="#F1E7D6"/></linearGradient>
   <linearGradient id="blue" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2F57A8"/><stop offset="1" stop-color="#22448C"/></linearGradient>
-  <radialGradient id="sheen" gradientUnits="userSpaceOnUse" cx="287" cy="95" r="700"><stop offset="0" stop-color="#F2A49A" stop-opacity=".32"/><stop offset="1" stop-color="#F2A49A" stop-opacity="0"/></radialGradient>
+  <radialGradient id="sheen" gradientUnits="userSpaceOnUse" cx="512" cy="-80" r="820"><stop offset="0" stop-color="#F2A49A" stop-opacity=".34"/><stop offset="1" stop-color="#F2A49A" stop-opacity="0"/></radialGradient>
   <radialGradient id="vignette" gradientUnits="userSpaceOnUse" cx="512" cy="360" r="720"><stop offset=".6" stop-color="#3A0A0E" stop-opacity="0"/><stop offset="1" stop-color="#3A0A0E" stop-opacity=".35"/></radialGradient>
   <!-- pebbled leather: noise lit from the top-left -->
   <filter id="grain" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
@@ -127,14 +134,16 @@ def icon(mode='inlay', rx=212, ry=240, side=100, top=33, slash_w=50, gap=14, ext
   <rect width="{S}" height="{S}" filter="url(#grain)" opacity=".16" style="mix-blend-mode:multiply"/>
   <!-- page block: bottom and fore-edge only -->
   <g clip-path="url(#pagesClip)">
-    <rect x="{PB_L}" y="{COVER_B - 80}" width="{PB_R - PB_L}" height="{PB_B - COVER_B + 80}" fill="url(#paper)"/>
-    <rect x="{PB_L}" y="{COVER_B - 80}" width="{PB_R - PB_L}" height="{PB_B - COVER_B + 80}" filter="url(#fibre)" opacity=".5"/>
+    <rect x="{PB_L}" y="{PT}" width="{PB_R - PB_L}" height="{PB_B - PT}" fill="url(#paper)"/>
+    <rect x="{PB_L}" y="{PT}" width="{PB_R - PB_L}" height="{PB_B - PT}" filter="url(#fibre)" opacity=".5"/>
     {lines}
-    <rect x="{PB_L}" y="{COVER_B - 80}" width="{PB_R - PB_L}" height="{PB_B - COVER_B + 80}" fill="url(#pageShade)"/>
+    <rect x="{PB_L}" y="{PT}" width="{PB_R - PB_L}" height="{PB_B - PT}" fill="url(#pageShade)"/>
     <ellipse cx="{PB_L + 40}" cy="{COVER_B + 6}" rx="150" ry="70" fill="url(#crease)"/>
+    <rect x="0" y="{PB_B - 40}" width="{S}" height="40" fill="url(#lipShadeBottom)"/>
+    <rect x="{PB_R - 44}" y="{PT}" width="44" height="{PB_B - PT}" fill="url(#lipShadeRight)"/>
     <path d="{PAGES}" fill="none" stroke="#4A1A16" stroke-opacity=".35" stroke-width="6"/>
     <!-- the cover's shadow on the pages, deepest under the cover -->
-    <path d="{cover(20)}" fill="#2B0A0C" opacity=".38" filter="url(#soft)"/>
+    <path d="{cover(22)}" fill="#2B0A0C" opacity=".5" filter="url(#soft)"/>
   </g>
   <!-- spine side: the leather rim curves round the corner; light catches it, the pages sit in its shadow -->
   <path d="M{PB_L - 16},{COVER_B} V{PB_B - RP} A{RP + 16},{RP + 16} 0 0,0 {PB_L + RP},{PB_B + 16} H{S - 260}" fill="none" stroke="url(#rimFade)" stroke-width="10" filter="url(#soft2)"/>
@@ -146,10 +155,12 @@ def icon(mode='inlay', rx=212, ry=240, side=100, top=33, slash_w=50, gap=14, ext
     <rect width="{S}" height="{S}" filter="url(#grain)" opacity=".22" style="mix-blend-mode:multiply"/>
     <rect width="{S}" height="{S}" fill="url(#sheen)"/>
     <rect width="{S}" height="{S}" fill="url(#vignette)"/>
-    <path d="M{LIP_X - 2},{COVER_B + LIP_R + 1} V{COVER_B + LIP_R} A{LIP_R + 2},{LIP_R + 2} 0 0,1 {LIP_X + LIP_R},{COVER_B - 2} H{S - 132} A129,129 0 0,0 {S - 3},{COVER_B - 132}" fill="none" stroke="#E07F7A" stroke-opacity=".45" stroke-width="4"/>
+    <path d="M{LIP_X - 2},{COVER_B + LIP_R + 1} V{COVER_B + LIP_R} A{LIP_R + 2},{LIP_R + 2} 0 0,1 {LIP_X + LIP_R},{COVER_B - 2} H{S - CR} A{CR - 3},{CR - 3} 0 0,0 {S - 3},{COVER_B - CR}" fill="none" stroke="#E07F7A" stroke-opacity=".45" stroke-width="4"/>
   </g>
-  <path d="M{LIP_X - 2},{COVER_B + LIP_R} A{230 - LIP_X + 2},{S - 14 - COVER_B - LIP_R} 0 0,0 230,{S - 14} H{S - 230} A227,216 0 0,0 {S - 3},{S - 230} V{COVER_B - 132}"
+  <path d="M{LIP_X - 2},{COVER_B + LIP_R} A{230 - LIP_X + 2},{S - 14 - COVER_B - LIP_R} 0 0,0 230,{S - 14} H{S - 230} A227,216 0 0,0 {S - 3},{S - 230} V{COVER_B - CR}"
         fill="none" stroke="#E07F7A" stroke-opacity=".45" stroke-width="4"/>
+  <rect width="170" height="{S}" fill="url(#spineShadow)"/>
+  <rect x="{S - 70}" width="70" height="{S}" fill="url(#edgeShadow)"/>
   {mark}
 </g>
 </svg>"""
