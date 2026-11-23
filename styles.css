@@ -94,6 +94,8 @@ kbd { font: 500 12px/1 var(--font-ui); background: var(--card); border: 1px soli
 #splash { position: fixed; inset: 0; z-index: 100; background: var(--paper); display: grid; place-items: center; will-change: opacity; }
 #splash img { width: 112px; height: 112px; display: block; filter: drop-shadow(0 10px 22px rgba(30, 36, 33, .18)); }
 #splash-msg { position: absolute; left: var(--space-6); right: var(--space-6); bottom: calc(var(--space-7) + env(safe-area-inset-bottom)); margin: 0; text-align: center; color: var(--ink-2); font-size: 15px; line-height: 22px; }
+html.ios-app #splash { display: block; }
+html.ios-app #splash img { position: absolute; left: calc(50% - 56px); bottom: calc(var(--screen-h) / 2 - 56px); }
 body.ready #splash { opacity: 0; pointer-events: none; transition: opacity .3s cubic-bezier(.3, 0, .2, 1); }
 .no-splash #splash { display: none; }
 
