@@ -1556,6 +1556,8 @@ async function boot() {
   // A cold start shows the launch logo for at least a moment, then dissolves it; resumes never see it
   const hold = 300 - performance.now();
   if (hold > 0 && !document.documentElement.classList.contains('no-splash')) await new Promise(r => setTimeout(r, hold));
+  // let the first page paint underneath before the fade starts, so the fade's first frames don't stall
+  await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
   document.body.classList.add('ready');
   setTimeout(() => $('#splash')?.remove(), 500);
   warmUp();
