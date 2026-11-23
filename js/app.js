@@ -73,7 +73,7 @@ function startBackDrag() {
 function endBackDrag() {
   const r = document.documentElement;
   clearTimeout(settleTimer);
-  r.classList.remove('page-moving', 'back-drag'); r.style.removeProperty('--page-x');
+  r.classList.remove('page-moving', 'back-drag'); r.style.removeProperty('--page-x'); r.style.removeProperty('--page-p');
   pageX = 0;
   $('#under')?.remove();
 }
@@ -90,6 +90,7 @@ function placePage(x, ms = 0) {
   const r = document.documentElement;
   pageX = x;
   r.style.setProperty('--page-x', x + 'px');
+  r.style.setProperty('--page-p', Math.min(1, x / innerWidth).toFixed(4));   // how far the page is across, 0–1
   r.style.setProperty('--page-ms', (reducedMotion() ? 0 : ms) + 'ms');
   r.classList.add('page-moving');
 }
@@ -391,7 +392,9 @@ function watchLargeTitle() {
   const el = $('.page-title, .home-title, .w-word');
   document.body.classList.toggle('hero-visible', !!el);
   if (!el) return;
-  titleObserver = new IntersectionObserver(([en]) => document.body.classList.toggle('hero-visible', en.isIntersecting), { rootMargin: '-60px 0px 0px 0px' });
+  // judged on the vertical only: a page that is drawn while parked off to the side (the end of a
+  // swipe-back) would otherwise count as scrolled past its title and flash the small title in the bar
+  titleObserver = new IntersectionObserver(([en]) => { const r = en.boundingClientRect; document.body.classList.toggle('hero-visible', r.bottom > 60 && r.top < innerHeight); }, { rootMargin: '-60px 0px 0px 0px' });
   titleObserver.observe(el);
 }
 function bandHTML(title, no = '', extra = '') { return `<div class="band"><span>${h(title)}${no ? ` <span class="no">${h(no)}</span>` : ''}</span>${extra}</div>`; }
