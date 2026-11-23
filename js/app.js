@@ -48,7 +48,10 @@ function setNav({ title = '', back = null, right = '', search = false }) {
   if (!search) document.body.classList.remove('typing');
 }
 function goBack(fromSwipe = false) {
-  if (navStack.length > 1) { expectBack = true; swipeBack = fromSwipe; history.back(); }
+  if (navStack.length > 1) {
+    expectBack = true; swipeBack = fromSwipe;
+    if (OWN_HISTORY) location.replace(navStack[navStack.length - 2]); else history.back();
+  }
   else go(backTarget || '#/', fromSwipe ? 'none' : 'back', true).then(() => { if (fromSwipe) endBackDrag(); });
 }
 // ---- swipe-back: the current page follows the finger; the previous one waits underneath, slightly
@@ -161,18 +164,29 @@ async function route() {
     watchLargeTitle();
     return;
   }
-  location.hash = '#/';
+  nav('#/');
 }
 
 // A back made with the browser's own swipe (Safari in a tab) has already been animated by the browser;
 // playing ours after it would show the move twice. Browsers that know say so with hasUAVisualTransition;
 // Safari tabs that don't are recognised by a finger dragging in from the left edge (a tap on the back
-// button never counts). The Home Screen app has no system swipe-back: the app does its own (boot()).
+// button never counts). The Home Screen app gives the system nothing to swipe back to (OWN_HISTORY).
 const STANDALONE = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
 // Safari on iPhone/iPad in a browser tab has its own swipe-back on the left edge; the Home Screen app doesn't
 const BROWSER_EDGE = !STANDALONE && (/iP(hone|ad|od)/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1));
+// The Home Screen app on iOS has a system swipe-back of its own (iOS 26) that drags in a screenshot of
+// the previous history entry, fighting the app's gesture and showing stale screens (often with the menu
+// open). So on touch devices the Home Screen app keeps a single history entry: every step replaces it,
+// the app's own navStack is the only back stack, and the system gesture has nowhere to go.
+const OWN_HISTORY = STANDALONE && navigator.maxTouchPoints > 0;
+function nav(hash) { if (OWN_HISTORY) location.replace(hash); else location.hash = hash; }
 let skipAnim = false, browserSwipeAt = -1e9, expectBack = false, linkTapAt = -1e9;
 document.addEventListener('click', (e) => { if (e.target.closest('a[href^="#"]')) linkTapAt = performance.now(); }, true);
+if (OWN_HISTORY) document.addEventListener('click', (e) => {
+  const a = e.target.closest('a[href^="#"]');
+  if (!a || e.defaultPrevented || a.target || a.hasAttribute('download')) return;
+  e.preventDefault(); nav(a.getAttribute('href'));
+});
 addEventListener('popstate', (e) => {
   skipAnim = !!e.hasUAVisualTransition || (BROWSER_EDGE && performance.now() - browserSwipeAt < 800);
 });
@@ -257,7 +271,7 @@ async function transition(dir, hash, fn) {
 async function go(hash, dir, replace = false) {
   scrollMem.set(lastHash, scrollY);
   if (replace) { history.replaceState(null, '', hash); navStack[navStack.length - 1] = hash; }
-  else { history.pushState(null, '', hash); navStack.push(hash); }
+  else { history[OWN_HISTORY ? 'replaceState' : 'pushState'](null, '', hash); navStack.push(hash); }
   lastHash = hash;
   await transition(dir, hash, async () => { await route(); window.scrollTo(0, 0); });
 }
@@ -273,7 +287,7 @@ function setupSearch() {
     searchTimer = setTimeout(() => {
       const target = q.value ? '#/s/' + encodeURIComponent(q.value) : '#/';
       if (isSearchHash(location.hash || '#/')) { history.replaceState(null, '', target); navStack[navStack.length - 1] = target; lastHash = target; route(); }
-      else location.hash = target;
+      else nav(target);
     }, 120);
   });
   q.addEventListener('keydown', (e) => {
@@ -288,7 +302,7 @@ function setupSearch() {
     try {
       const t = (await navigator.clipboard.readText()).trim();
       if (!t) return toast('Clipboard is empty');
-      if (t.split(/\s+/).length > 3) { sessionStorage.setItem('reader', t); location.hash = '#/reader'; return; }
+      if (t.split(/\s+/).length > 3) { sessionStorage.setItem('reader', t); nav('#/reader'); return; }
       q.value = t; q.dispatchEvent(new Event('input'));
     } catch { toast('Clipboard access was blocked'); }
   });
@@ -408,7 +422,7 @@ function progressive(container, ids, renderFn, first = 40, step = 80) {
 const GROUP_LABEL = { exact: 'Exact matches', exact2: 'Also spelled this way', form: 'Inflected forms', en: 'English → Norwegian', prefix: 'Starting with', contains: 'Containing', wild: 'Wildcard matches' };
 async function viewHome(q) {
   setNav({ title: 'Ordbok', search: true, right: `<button class="pill-btn" id="toLists">Lists</button>` });
-  $('#toLists').onclick = () => { location.hash = '#/builtin'; };
+  $('#toLists').onclick = () => { nav('#/builtin'); };
   if (qInput().value !== q && document.activeElement !== qInput()) qInput().value = q;
   $('#clearQ').hidden = !qInput().value;
   document.title = q ? `${q} – Oppslag` : 'Oppslag';
@@ -808,29 +822,42 @@ function warmUp() {
   setTimeout(next, 900);
 }
 
-// Finger-tracking gestures (phones and tablets): drag from the left edge to open the menu on a top-level
-// page or to go back on a deeper one; drag the page strip back (or tap it) to close the menu. A release
-// finishes the move if the finger was flicked that way or got past halfway, and takes the rest of the
-// distance at the finger's own speed. In a Safari tab the left edge belongs to the browser's own back.
+// Finger-tracking gestures (phones and tablets), like Shirabe: a short drag to the right from anywhere on
+// the page opens the menu on a top-level page or goes back on a deeper one; with the menu open, a drag to
+// the left anywhere (or a tap on the page strip) closes it. A release finishes the move on a flick or past
+// about a third of the way, taking the rest of the distance at the finger's own speed. Drags that start
+// in a text field, a slider or a sideways-scrolling row are theirs, not the page's. In a Safari tab the
+// left edge belongs to the browser's own back.
+const SWIPE_LOCK = 10;          // px of sideways travel before a drag becomes a swipe
+const FLICK = .3;               // px/ms
+function ownsSideways(el) {
+  for (let n = el; n && n !== document.body; n = n.parentElement) {
+    if (n.matches?.('input,textarea,select,[contenteditable],.modal-wrap,#suggest,#keybar')) return true;
+    if (n.scrollWidth > n.clientWidth + 2) { const o = getComputedStyle(n).overflowX; if (o === 'auto' || o === 'scroll') return true; }
+  }
+  return false;
+}
 function setupGestures() {
   let g = null;
   const onMove = (e) => {
     if (!g) return;
     const t = e.touches[0], dx = t.clientX - g.x0, dy = t.clientY - g.y0;
     if (!g.lock) {
-      if (Math.abs(dy) > 8 && Math.abs(dy) > Math.abs(dx)) { stop(); return; }   // a scroll, not a swipe
-      if (Math.abs(dx) < 6) return;
-      g.lock = true;
+      if (Math.abs(dy) > SWIPE_LOCK && Math.abs(dy) > Math.abs(dx)) { stop(); return; }   // a scroll, not a swipe
+      if (Math.abs(dx) < SWIPE_LOCK || Math.abs(dx) < Math.abs(dy) * 1.4) return;
+      if (g.mode !== 'close' && dx < 0) { stop(); return; }   // only a drag to the right opens or goes back
+      g.lock = true; g.x0 = t.clientX;   // start tracking from here, so the page doesn't jump by the lock distance
       activeVT?.skipTransition();   // a swipe during a page change finishes that change at once and takes over
+      window.getSelection?.()?.removeAllRanges();
       if (g.mode === 'open') { const r = document.documentElement; r.style.setProperty('--drawer-w', drawerW() + 'px'); r.classList.add('drawer-on'); hideSuggest(); qInput().blur(); }
       if (g.mode === 'back') { startBackDrag(); document.documentElement.classList.add('back-drag'); }
     }
     e.preventDefault();
     const now = performance.now(), dt = now - g.t;
-    if (dt > 0) g.v = .75 * ((t.clientX - g.lastX) / dt) + .25 * g.v;
+    if (dt > 0) g.v = .7 * ((t.clientX - g.lastX) / dt) + .3 * g.v;
     g.t = now; g.lastX = t.clientX;
     const max = g.mode === 'back' ? innerWidth : drawerW();
-    let x = g.base + dx;
+    let x = g.base + (t.clientX - g.x0);
     if (x > max) x = g.mode === 'back' ? max : max + (x - max) * .12;   // the menu stretches a little past open
     placePage(Math.max(0, x), 0);
   };
@@ -839,36 +866,38 @@ function setupGestures() {
     stop();
     if (!MOBILE_NAV() || e.touches.length > 1 || $('.modal-wrap')) return;
     const t = e.touches[0];
-    let mode = null;
-    if (drawerOpen) { if (t.clientX >= pageX - 6) mode = 'close'; }
-    else if (t.clientX < 28) {
-      if (BROWSER_EDGE) { browserSwipeAt = performance.now(); return; }
+    let mode = null, strip = false;
+    if (drawerOpen) { mode = 'close'; strip = t.clientX >= pageX - 6; }
+    else {
+      if (BROWSER_EDGE && t.clientX < 24) { browserSwipeAt = performance.now(); return; }
+      if (ownsSideways(e.target)) return;
       mode = backTarget ? 'back' : 'open';
     }
-    if (!mode) return;
-    g = { mode, x0: t.clientX, y0: t.clientY, base: pageX, lock: false, t: performance.now(), lastX: t.clientX, v: 0 };
+    g = { mode, strip, x0: t.clientX, y0: t.clientY, base: pageX, lock: false, t: performance.now(), lastX: t.clientX, v: 0 };
     document.addEventListener('touchmove', onMove, { passive: false });
   }, { passive: true });
-  const end = () => {
+  // release: finish or spring back. A cancelled touch (the system took the gesture) always springs back.
+  const end = (cancelled) => {
     if (!g) return;
     const m = g; stop();
-    if (!m.lock) { if (m.mode === 'close') closeDrawer(); return; }   // a tap on the page strip closes the menu
+    if (performance.now() - m.t > 90) m.v = 0;   // the finger stopped before lifting: no flick
+    if (!m.lock) { if (m.strip) closeDrawer(); return; }   // a tap on the page strip closes the menu
     const x = pageX;
     if (m.mode === 'back') {
-      const done = m.v > .5 || (m.v > -.2 && x > innerWidth * .4);   // a real flick, or past 40%
+      const done = !cancelled && (m.v > FLICK || (m.v > -.15 && x > innerWidth * .33));
       const ms = releaseMs((done ? innerWidth : 0) - x, m.v, 380);
       placePage(done ? innerWidth : 0, ms);
       settleTimer = setTimeout(() => { if (done) goBack(true); else endBackDrag(); }, (reducedMotion() ? 0 : ms) + 20);
       return;
     }
-    const W = drawerW();
-    const open = m.v > .5 ? true : m.v < -.5 ? false : x > W / 2;
+    const W = drawerW(), wasOpen = m.base > 0;
+    const open = cancelled ? wasOpen : m.v > FLICK ? true : m.v < -FLICK ? false : x > W * (wasOpen ? .65 : .35);
     const ms = releaseMs((open ? W : 0) - x, m.v, open ? EASE_MS.open : EASE_MS.close);
     if (open) { drawerOpen = true; document.documentElement.classList.add('drawer-open'); settlePage(W, ms); }
     else { drawerOpen = false; document.documentElement.classList.remove('drawer-open'); settlePage(0, ms); }
   };
-  document.addEventListener('touchend', end, { passive: true });
-  document.addEventListener('touchcancel', end, { passive: true });
+  document.addEventListener('touchend', () => end(false), { passive: true });
+  document.addEventListener('touchcancel', () => end(true), { passive: true });
   addEventListener('resize', () => { if (drawerOpen && !MOBILE_NAV()) { drawerOpen = false; endBackDrag(); document.documentElement.classList.remove('drawer-open', 'drawer-on'); } });
 }
 
@@ -890,7 +919,7 @@ function setupHold() {
       navigator.vibrate?.(8);
       if (target.dataset.sent) {
         try { localStorage.setItem('oppslag.heldSentence', '1'); } catch {}
-        location.hash = '#/x/' + target.dataset.sent;
+        nav('#/x/' + target.dataset.sent);
       } else deckSheet(target.dataset.deck);
     }, 460);
   });
@@ -991,7 +1020,7 @@ function wireToolbar(ids, name, source, rerender) {
     if (act === 'study') {
       const existing = store.decks().find(d => d.source.type === source.type && d.source.id === source.id);
       const d = existing || store.newDeck(name, source, 'no');
-      location.hash = '#/review/' + encodeURIComponent(d.id);
+      nav('#/review/' + encodeURIComponent(d.id));
     }
     if (act === 'anki') {
       const rows = [];
@@ -1033,7 +1062,7 @@ function renderWordList(container, ids, extraFn) {
 
 async function viewMyList(id) {
   const l = store.list(id);
-  if (!l) { location.hash = '#/lists'; return; }
+  if (!l) { nav('#/lists'); return; }
   if (l.ids.some(isSent)) { const my = routeSeq; await sents(); if (my !== routeSeq) return; }
   document.title = `${l.name} – Oppslag`;
   setNav({ title: l.name, back: '#/lists', right: l.id !== 'fav' ? `<button class="round" id="ren" aria-label="Rename">${ICON.edit}</button><button class="round" id="del" aria-label="Delete list">${ICON.trash}</button>` : '' });
@@ -1046,7 +1075,7 @@ async function viewMyList(id) {
   render();
   view().onclick = (ev) => { const b = ev.target.closest('[data-rm]'); if (b) { ev.preventDefault(); ev.stopPropagation(); store.toggleInList(id, isSent(b.dataset.rm) ? b.dataset.rm : +b.dataset.rm); render(); } };
   $('#ren') && ($('#ren').onclick = async () => { const n = await askText('Rename list', l.name); if (n) { store.renameList(id, n); setNav({ title: n, back: '#/lists' }); viewMyList(id); } });
-  $('#del') && ($('#del').onclick = () => { if (confirm(`Delete “${l.name}”?`)) { store.deleteList(id); location.hash = '#/lists'; } });
+  $('#del') && ($('#del').onclick = () => { if (confirm(`Delete “${l.name}”?`)) { store.deleteList(id); nav('#/lists'); } });
 }
 
 // ------------------------------------------------------------------ BUILT-IN LISTS
@@ -1074,7 +1103,7 @@ async function viewBuiltin(id) {
   const L = await db.lists();
   if (my !== routeSeq) return;
   const l = L.find(x => x.id === id);
-  if (!l) { location.hash = '#/builtin'; return; }
+  if (!l) { nav('#/builtin'); return; }
   document.title = `${l.name} – Oppslag`;
   setNav({ title: l.name, back: '#/builtin', right: l.type === 'pairs' ? '' : `<button class="round" id="copyL" aria-label="Save a copy to Bookmarks">${ICON.bookmark}</button>` });
   const ids = l.ids.filter(x => db.row(x));
@@ -1185,7 +1214,7 @@ async function deckSheet(deckId) {
 
 async function viewReview(deckId) {
   const d = store.deck(deckId);
-  if (!d) { location.hash = '#/cards'; return; }
+  if (!d) { nav('#/cards'); return; }
   document.title = `${d.name} – Flashcards`;
   const my = routeSeq;
   const ids = await deckIds(d);
@@ -1351,7 +1380,7 @@ async function viewExamples(q) {
   document.title = 'Example sentences – Oppslag';
   setNav({ title: 'Example sentences' });
   view().innerHTML = `${pageTitle('Example sentences')}<form id="exf" class="row"><input id="exq" value="${h(q)}" placeholder="Search Norwegian or English sentences" autocapitalize="off"><button class="btn primary">Search</button></form><div id="exr" class="loading">Loading…</div>`;
-  $('#exf').addEventListener('submit', (ev) => { ev.preventDefault(); location.hash = '#/examples/' + encodeURIComponent($('#exq').value); });
+  $('#exf').addEventListener('submit', (ev) => { ev.preventDefault(); nav('#/examples/' + encodeURIComponent($('#exq').value)); });
   const my = routeSeq;
   const S = await db.sentences();
   if (my !== routeSeq) return;
@@ -1499,7 +1528,7 @@ async function boot() {
   setupGestures();
   document.addEventListener('keydown', (e) => {
     const typing = e.target.matches('input,textarea,select');
-    if ((e.key === '/' && !typing) || (e.key === 'k' && (e.metaKey || e.ctrlKey))) { e.preventDefault(); if (!document.body.classList.contains('has-search')) location.hash = '#/'; setTimeout(() => { qInput().focus(); qInput().select(); }, 30); }
+    if ((e.key === '/' && !typing) || (e.key === 'k' && (e.metaKey || e.ctrlKey))) { e.preventDefault(); if (!document.body.classList.contains('has-search')) nav('#/'); setTimeout(() => { qInput().focus(); qInput().select(); }, 30); }
     if (e.key === 'Escape') closeDrawer();
     if (!typing && !$('#pager').hidden) {
       if (e.key === 'ArrowLeft') $('#prevRes').click();
