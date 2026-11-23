@@ -88,11 +88,13 @@ kbd { font: 500 12px/1 var(--font-ui); background: var(--card); border: 1px soli
 
 /* ---------- launch screen: the app icon centred on the page colour, like a native app's launch screen.
    Shown on a cold start only; it dissolves (with a slight lift) once the first screen is ready. */
-#splash { position: fixed; inset: 0; z-index: 100; background: var(--paper); display: grid; place-items: center; }
+/* The launch screen is one still layer that fades out, like a native launch screen. The icon never
+   moves or scales: scaling an image with a drop-shadow filter makes iOS redraw it every frame at
+   shifting sub-pixel positions, which showed as a jitter. */
+#splash { position: fixed; inset: 0; z-index: 100; background: var(--paper); display: grid; place-items: center; will-change: opacity; }
 #splash img { width: 112px; height: 112px; display: block; filter: drop-shadow(0 10px 22px rgba(30, 36, 33, .18)); }
 #splash-msg { position: absolute; left: var(--space-6); right: var(--space-6); bottom: calc(var(--space-7) + env(safe-area-inset-bottom)); margin: 0; text-align: center; color: var(--ink-2); font-size: 15px; line-height: 22px; }
-body.ready #splash { opacity: 0; pointer-events: none; transition: opacity .26s cubic-bezier(.3, 0, .2, 1); }
-body.ready #splash img { transform: scale(1.06); transition: transform .26s cubic-bezier(.3, 0, .2, 1); }
+body.ready #splash { opacity: 0; pointer-events: none; transition: opacity .3s cubic-bezier(.3, 0, .2, 1); }
 .no-splash #splash { display: none; }
 
 /* ======================================================================

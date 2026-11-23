@@ -1,7 +1,7 @@
 // Offline support. App shell: network-first and always revalidated with the server, so a new
 // release shows up on the next launch (GitHub Pages lets browsers reuse files for 10 minutes,
 // which otherwise hides updates). Data: cache-first.
-const SHELL = 'oppslag-shell-v18';
+const SHELL = 'oppslag-shell-v19';
 const DATA = 'oppslag-data';
 const SHELL_FILES = ['./', 'index.html', 'styles.css', 'oppslag-v7.webmanifest', 'js/app.js', 'js/db.js', 'js/store.js', 'js/srs.js',
   'js/speech.js', 'js/render.js', 'js/icons.js', 'icons/bok7-192.png', 'icons/bok7-512.png', 'icons/bok7-180.png', 'icons/bok7-logo.png',
