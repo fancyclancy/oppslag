@@ -724,7 +724,7 @@ body.nav-wait #view { opacity: .55; }
   html.drawer-open #scrim { display: block; }
   html.page-moving .topbar, html.page-moving #view, html.page-moving #pagebg, html.page-moving #pager, html.page-moving #scrim {
     transform: translate3d(var(--page-x, 0px), 0, 0);
-    transition: transform var(--page-ms, 0ms) cubic-bezier(.32, .72, 0, 1);
+    transition: transform var(--page-ms, 0ms) cubic-bezier(.32, .72, 0, 1); will-change: transform; backface-visibility: hidden;
   }
   /* the page's leading edge casts a soft shadow onto whatever it reveals */
   html.page-moving #pagebg { box-shadow: -1px 0 0 color-mix(in srgb, var(--ink) 8%, transparent), -14px 0 36px rgba(20, 14, 14, .16); }
