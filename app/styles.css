@@ -65,12 +65,15 @@
    ====================================================================== */
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 [hidden] { display: none !important; }
-html { -webkit-text-size-adjust: 100%; background: var(--paper); }
+/* nothing may scroll the page sideways: while the page layer is pushed right (menu, swipe-back) the
+   document would otherwise grow wider than the screen and iOS lets the finger pan it, so the content
+   slid off its top bar. body clips (clip, not hidden: hidden would make body its own scroller) */
+html { -webkit-text-size-adjust: 100%; background: var(--paper); overflow-x: hidden; }
 body {
   margin: 0; background: var(--paper); color: var(--ink);
   font: 400 calc(17px * var(--fs)) / 1.5 var(--font-ui); letter-spacing: -.005em;
   padding-top: calc(var(--safe-t) + var(--nav-h)); padding-bottom: env(safe-area-inset-bottom);
-  overflow-x: hidden; overscroll-behavior-y: none; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+  overflow-x: clip; overscroll-behavior-y: none; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
 }
 body.has-search { padding-top: calc(var(--safe-t) + var(--nav-h) + var(--search-h)); }
 a { color: var(--link); text-decoration: none; }
@@ -737,6 +740,9 @@ body.nav-wait #view { opacity: .55; }
     transition: transform var(--page-ms, 0ms) cubic-bezier(.32, .72, 0, 1); }
   #under::after { content: ""; position: absolute; inset: 0; z-index: 40; background: #140E0E; opacity: .1; pointer-events: none; }
   #under .topbar { position: absolute; view-transition-name: none; }
+  /* the picture holds copies of the top bar and #view: they must stay put, not follow the page layer
+     (they did, so a finished swipe-back pushed the picture off-screen too and the screen went blank) */
+  #under .topbar, #under #view { transform: none; transition: none; will-change: auto; view-transition-name: none; }
   #under .under-scroll { position: absolute; left: 0; right: 0; top: calc(var(--safe-t) + var(--nav-h)); }
   #under.has-search .under-scroll { top: calc(var(--safe-t) + var(--nav-h) + var(--search-h)); }
   #under.has-search .searchrow { display: flex; }

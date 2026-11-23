@@ -898,6 +898,8 @@ function setupGestures() {
   };
   document.addEventListener('touchend', () => end(false), { passive: true });
   document.addEventListener('touchcancel', () => end(true), { passive: true });
+  // belt and braces for the overflow clip in styles.css: the page never stays scrolled sideways
+  addEventListener('scroll', () => { if (scrollX) scrollTo(0, scrollY); }, { passive: true });
   addEventListener('resize', () => { if (drawerOpen && !MOBILE_NAV()) { drawerOpen = false; endBackDrag(); document.documentElement.classList.remove('drawer-open', 'drawer-on'); } });
 }
 
