@@ -1562,13 +1562,13 @@ async function boot() {
   setTimeout(() => $('#splash')?.remove(), 500);
   warmUp();
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-    // A new release installs a new service worker. On a fresh launch the page already came from the
-    // network (the shell is network-first), so nothing to do. If the app was resumed and is in use,
-    // switch to the new version the next time it goes to the background, without the launch logo.
+    // A new release installs a new service worker in the background (the page itself starts from the
+    // cache, instantly). Once it takes over, switch to the new version the next time the app goes to
+    // the background, without the launch logo: the next open shows the new release.
     const hadController = !!navigator.serviceWorker.controller;
     let pending = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (!hadController || pending || performance.now() < 8000) return;
+      if (!hadController || pending) return;
       pending = true;
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState !== 'hidden') return;
