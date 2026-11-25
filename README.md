@@ -61,3 +61,19 @@ python3 -m http.server 8790 --directory app
 ```
 
 Then open http://localhost:8790.
+
+## Adapting it to another language
+
+The app in `app/` doesn't depend on Norwegian: search, word pages, flashcards, lists, the reader, Anki export and offline mode all read from the data files in `app/data/`. Making, say, a Spanish version means producing that data and changing the Norwegian-specific wording. It is not a setting, but it is a small project. Rough steps:
+
+1. **Fork the repo** and turn on GitHub Pages for your fork (publish the `app/` folder).
+2. **Pick sources for your language.** Three of the sources here cover many languages: English Wiktionary via [kaikki.org](https://kaikki.org) (definitions, inflection, English meanings), [Tatoeba](https://tatoeba.org) (example sentences with translations) and [FrequencyWords](https://github.com/hermitdave/FrequencyWords) (word frequency). The three Norwegian-only sources (Bokmålsordboka, Norsk ordbank, NB Uttale) need replacing: use another open dictionary for your language, or rely on Wiktionary alone.
+3. **Rewrite `pipeline/build.py`** to read your sources and write the same output files into `app/data/`. The URLs at the top of the file show what each source provides and where it goes. Language-specific features (Norwegian tone, noun gender) can be dropped or swapped for equivalents.
+4. **Change the Norwegian-specific text in `app/js/app.js`, `app/index.html` and the web manifest**: the name, the æ ø å key bar, the text-to-speech voice, and wording about tone and gender.
+5. **Credit your sources** in the About screen. Check each licence, since several (Wiktionary, FrequencyWords) require attribution and share-alike.
+
+Python plus a coding assistant makes this much faster, but expect to spend time on the data step, and to check the results by hand.
+
+## Licence
+
+The code is released under the [MIT licence](LICENSE). The dictionary data is not covered by it: each source keeps its own licence, listed in the table above, which require attribution and, for Wiktionary and FrequencyWords, share-alike.
